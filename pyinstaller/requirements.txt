@@ -6,7 +6,7 @@
 #
 # The pdf extra matters: without xhtml2pdf the `-P` flag raised RuntimeError in
 # every standalone build we ever shipped.
-pefile==2023.2.7 # pinned: a newer pefile conflicted with pyinstaller when this was added, then 6.11.1
+pefile==2024.8.26 # pinned: a newer pefile conflicted with pyinstaller when this was added, then 6.11.1
 psutil==7.2.2
 pyinstaller==6.22.3
 pywin32-ctypes==0.2.3
