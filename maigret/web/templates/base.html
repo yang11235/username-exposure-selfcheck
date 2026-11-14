@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-bs-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户名暴露自检</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .main-container {
+            flex: 1;
+            padding-top: 2rem;
+        }
+
+        .form-container {
+            max-width: auto;
+            margin: auto;
+            padding-bottom: 2rem;
+        }
+
+        [data-bs-theme="dark"] {
+            --bs-body-bg: #212529;
+            --bs-body-color: #dee2e6;
+        }
+
+        .header {
+            padding: 1rem 0;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--bs-border-color);
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo {
+            height: 40px;
+            width: auto;
+        }
+
+        .footer {
+            margin-top: auto;
+            padding: 1rem 0;
+            text-align: center;
+            border-top: 1px solid var(--bs-border-color);
+            font-size: 0.9rem;
+        }
+
+        .footer a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        .tag-cloud {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 15px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 15px;
+            background-color: #dc3545;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+
+        .tag.selected {
+            background-color: #28a745;
+        }
+
+        .tag.excluded {
+            background-color: #343a40;
+            text-decoration: line-through;
+        }
+
+        .tag:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        .hidden-select {
+            display: none !important;
+        }
+
+        .site-input-container {
+            position: relative;
+        }
+
+        .selected-sites {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px 0;
+        }
+
+        .selected-site {
+            background-color: #214e7b;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .remove-site {
+            cursor: pointer;
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        /* The header/body/footer live inside a <form>, which breaks the flex
+           chain .modal-dialog-scrollable relies on (.modal-content's direct
+           children stop being .modal-header/.modal-body/.modal-footer) — redo
+           that flex layout one level down, on the form itself. */
+        #settingsModal .modal-content>form {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        #settingsModal .modal-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+        }
+
+        /* "Fork me on GitHub" corner ribbon: the wrapper clips the band's ends
+           flush with the viewport corner, so no page-level overflow. */
+        .gh-ribbon {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 160px;
+            height: 160px;
+            overflow: hidden;
+            z-index: 1030;
+            pointer-events: none;
+        }
+
+        .gh-ribbon a {
+            position: absolute;
+            top: 48px;
+            left: -24px;
+            width: 240px;
+            padding: 6px 0;
+            transform: rotate(45deg);
+            background-color: rgb(249, 207, 0);
+            color: #000;
+            font: bold 13px/1.2 sans-serif;
+            text-align: center;
+            text-decoration: none;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            pointer-events: auto;
+        }
+
+        /* Would collide with the header buttons once the container goes full-width */
+        @media (max-width: 1299px) {
+            .gh-ribbon {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="gh-ribbon">
+        <a href="https://github.com/soxoj/maigret" target="_blank" rel="noopener">GitHub 项目</a>
+    </div>
+
+    <div class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo-container">
+                    <img src="{{ url_for('static', filename='maigret.png') }}" alt="Maigret Logo" class="logo">
+                    <div>
+                        <h1 class="h4 mb-0">用户名暴露自检</h1>
+                        <div class="small text-muted">查清一个用户名在各平台留下了什么</div>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">新建检索</a>
+                    <a href="{{ url_for('history') }}" class="btn btn-outline-secondary">历史记录</a>
+                    <button class="btn btn-outline-secondary" id="theme-toggle">
+                        明暗切换
+                    </button>
+                    <button class="btn btn-outline-secondary" id="settings-toggle" title="设置"
+                        data-bs-toggle="modal" data-bs-target="#settingsModal">
+                        &#9881;
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="container">
+            {% with messages = get_flashed_messages() %}
+            {% if messages %}
+            {% for message in messages %}
+            <div class="alert alert-info">{{ message }}</div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <form method="POST" action="{{ url_for('settings_update') }}">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="settingsModalLabel">设置</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="settings-timeout" class="form-label">超时（秒）</label>
+                            <input type="number" class="form-control" id="settings-timeout" name="timeout" min="1"
+                                value="{{ web_settings.timeout }}">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="settings-top_sites" class="form-label">站点数量（快速检索）</label>
+                            <input type="number" class="form-control" id="settings-top_sites" name="top_sites" min="1"
+                                max="10000" value="{{ web_settings.top_sites }}">
+                        </div>
+
+                        <h6>高级选项</h6>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="settings-permute" name="permute"
+                                {{ 'checked' if web_settings.permute }}>
+                            <label class="form-check-label" for="settings-permute">生成用户名变体</label>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="settings-disable_recursive_search"
+                                name="disable_recursive_search" {{ 'checked' if web_settings.disable_recursive_search }}>
+                            <label class="form-check-label" for="settings-disable_recursive_search">关闭递归检索</label>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="settings-disable_extracting"
+                                name="disable_extracting" {{ 'checked' if web_settings.disable_extracting }}>
+                            <label class="form-check-label" for="settings-disable_extracting">关闭信息提取</label>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="settings-with_domains"
+                                name="with_domains" {{ 'checked' if web_settings.with_domains }}>
+                            <label class="form-check-label" for="settings-with_domains">检查域名</label>
+                        </div>
+
+                                                <h6>登录 Cookie（可选）</h6>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="settings-use_cookies"
+                                name="use_cookies" {{ 'checked' if web_settings.use_cookies }}>
+                            <label class="form-check-label" for="settings-use_cookies">检索时携带 Cookie（微博、贴吧等站点需要）</label>
+                        </div>
+                        <div class="mb-3">
+                            <label for="settings-cookie-domain" class="form-label">域名</label>
+                            <input type="text" class="form-control" id="settings-cookie-domain"
+                                name="cookie_domain" placeholder="weibo.com">
+                        </div>
+                        <div class="mb-3">
+                            <label for="settings-cookie-text" class="form-label">Cookie 内容</label>
+                            <textarea class="form-control" id="settings-cookie-text" name="cookie_text" rows="4"
+                                placeholder="两种都行：① 浏览器 F12 → 网络 → 请求头里 Cookie: 后面的内容（需填域名）；② 扩展导出的 cookies.txt 全文（制表符分隔，可含多个域名，直接粘贴）"></textarea>
+                            <div class="form-text">
+                                {% if cookie_domains %}已保存：{% for d, n in cookie_domains.items() %}{{ d }}（{{ n }} 条）{% if not loop.last %}、{% endif %}{% endfor %}{% else %}还没有保存任何 Cookie{% endif %}
+                            </div>
+                        </div>
+
+<h6>代理</h6>
+                        <div class="mb-3">
+                            <label for="settings-proxy" class="form-label">代理地址</label>
+                            <input type="text" class="form-control" id="settings-proxy" name="proxy"
+                                placeholder="例如 127.0.0.1:1080" value="{{ web_settings.proxy }}">
+                        </div>
+                        <div class="mb-3">
+                            <label for="settings-tor_proxy" class="form-label">Tor 代理地址</label>
+                            <input type="text" class="form-control" id="settings-tor_proxy" name="tor_proxy"
+                                placeholder="默认 127.0.0.1:9050" value="{{ web_settings.tor_proxy }}">
+                        </div>
+                        <div class="mb-3">
+                            <label for="settings-i2p_proxy" class="form-label">I2P 代理地址</label>
+                            <input type="text" class="form-control" id="settings-i2p_proxy" name="i2p_proxy"
+                                placeholder="默认 127.0.0.1:4444" value="{{ web_settings.i2p_proxy }}">
+                        </div>
+
+                        <h6>筛选</h6>
+                        <div class="mb-3 site-input-container">
+                            <label for="settingsSiteInput" class="form-label">指定站点（可选）</label>
+                            <input type="text" class="form-control" id="settingsSiteInput"
+                                placeholder="输入站点名搜索…" list="settingsSiteOptions">
+                            <input type="hidden" id="settings-site" name="site" value="{{ web_settings.site_list | join(',') }}">
+                            <datalist id="settingsSiteOptions"></datalist>
+                            <div class="selected-sites" id="settingsSelectedSites"></div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">标签（点击循环：包含 &rarr; 排除 &rarr; 中立）</label>
+                            <div class="mb-2">
+                                <small class="text-muted">
+                                    <span style="display:inline-block;width:12px;height:12px;background:#28a745;border-radius:50%;"></span> 包含（白名单）
+                                    &nbsp;&nbsp;
+                                    <span style="display:inline-block;width:12px;height:12px;background:#343a40;border-radius:50%;"></span> 排除（黑名单）
+                                    &nbsp;&nbsp;
+                                    <span style="display:inline-block;width:12px;height:12px;background:#dc3545;border-radius:50%;"></span> 中立
+                                </small>
+                            </div>
+                            <div class="tag-cloud" id="settingsTagCloud"></div>
+                            <select multiple class="hidden-select" id="settingsTags" name="tags">
+                                <option value="gaming">游戏</option>
+                                <option value="coding">编程</option>
+                                <option value="photo">摄影</option>
+                                <option value="music">音乐</option>
+                                <option value="blog">博客</option>
+                                <option value="finance">金融</option>
+                                <option value="freelance">自由职业</option>
+                                <option value="dating">交友</option>
+                                <option value="tech">科技</option>
+                                <option value="forum">论坛</option>
+                                <option value="porn">成人</option>
+                                <option value="erotic">情色</option>
+                                <option value="webcam">直播</option>
+                                <option value="video">视频</option>
+                                <option value="movies">影视</option>
+                                <option value="hacking">黑客</option>
+                                <option value="art">艺术</option>
+                                <option value="discussion">讨论</option>
+                                <option value="sharing">分享</option>
+                                <option value="writing">写作</option>
+                                <option value="wiki">百科</option>
+                                <option value="business">商务</option>
+                                <option value="shopping">购物</option>
+                                <option value="sport">体育</option>
+                                <option value="books">图书</option>
+                                <option value="news">新闻</option>
+                                <option value="documents">文档</option>
+                                <option value="travel">旅行</option>
+                                <option value="maps">地图</option>
+                                <option value="hobby">爱好</option>
+                                <option value="apps">应用</option>
+                                <option value="classified">分类信息</option>
+                                <option value="career">职业</option>
+                                <option value="geosocial">地理社交</option>
+                                <option value="streaming">流媒体</option>
+                                <option value="education">教育</option>
+                                <option value="networking">社交网络</option>
+                                <option value="torrent">种子</option>
+                                <option value="science">科学</option>
+                                <option value="medicine">医疗</option>
+                                <option value="reading">阅读</option>
+                                <option value="stock">股票</option>
+                                <option value="messaging">即时通讯</option>
+                                <option value="trading">交易</option>
+                                <option value="links">链接</option>
+                                <option value="fashion">时尚</option>
+                                <option value="tasks">任务</option>
+                                <option value="military">军事</option>
+                                <option value="auto">汽车</option>
+                                <option value="gambling">赌博</option>
+                                <option value="cybercriminal">网络犯罪</option>
+                                <option value="review">评测</option>
+                                <option value="bookmarks">书签</option>
+                                <option value="design">设计</option>
+                                <option value="tor">Tor</option>
+                                <option value="i2p">I2P</option>
+                                <option value="q&a">问答</option>
+                                <option value="crypto">加密货币</option>
+                                <option value="ai">AI</option>
+                                <!-- Country tags -->
+                                <option value="ae" data-group="country">AE - 阿联酋</option>
+                                <option value="ao" data-group="country">AO - 安哥拉</option>
+                                <option value="ar" data-group="country">AR - 阿根廷</option>
+                                <option value="at" data-group="country">AT - 奥地利</option>
+                                <option value="au" data-group="country">AU - 澳大利亚</option>
+                                <option value="az" data-group="country">AZ - 阿塞拜疆</option>
+                                <option value="bd" data-group="country">BD - 孟加拉国</option>
+                                <option value="be" data-group="country">BE - 比利时</option>
+                                <option value="bg" data-group="country">BG - 保加利亚</option>
+                                <option value="br" data-group="country">BR - 巴西</option>
+                                <option value="by" data-group="country">BY - 白俄罗斯</option>
+                                <option value="ca" data-group="country">CA - 加拿大</option>
+                                <option value="ch" data-group="country">CH - 瑞士</option>
+                                <option value="cl" data-group="country">CL - 智利</option>
+                                <option value="cn" data-group="country">CN - 中国</option>
+                                <option value="co" data-group="country">CO - 哥伦比亚</option>
+                                <option value="cr" data-group="country">CR - 哥斯达黎加</option>
+                                <option value="cz" data-group="country">CZ - 捷克</option>
+                                <option value="de" data-group="country">DE - 德国</option>
+                                <option value="dk" data-group="country">DK - 丹麦</option>
+                                <option value="dz" data-group="country">DZ - 阿尔及利亚</option>
+                                <option value="ee" data-group="country">EE - 爱沙尼亚</option>
+                                <option value="eg" data-group="country">EG - 埃及</option>
+                                <option value="es" data-group="country">ES - 西班牙</option>
+                                <option value="eu" data-group="country">EU - 欧盟</option>
+                                <option value="fi" data-group="country">FI - 芬兰</option>
+                                <option value="fr" data-group="country">FR - 法国</option>
+                                <option value="gb" data-group="country">GB - 英国</option>
+                                <option value="global" data-group="country">&#127757; Global</option>
+                                <option value="gr" data-group="country">GR - 希腊</option>
+                                <option value="hk" data-group="country">HK - 中国香港</option>
+                                <option value="hr" data-group="country">HR - 克罗地亚</option>
+                                <option value="hu" data-group="country">HU - 匈牙利</option>
+                                <option value="id" data-group="country">ID - 印度尼西亚</option>
+                                <option value="ie" data-group="country">IE - 爱尔兰</option>
+                                <option value="il" data-group="country">IL - 以色列</option>
+                                <option value="in" data-group="country">IN - 印度</option>
+                                <option value="ir" data-group="country">IR - 伊朗</option>
+                                <option value="it" data-group="country">IT - 意大利</option>
+                                <option value="jp" data-group="country">JP - 日本</option>
+                                <option value="kg" data-group="country">KG - 吉尔吉斯斯坦</option>
+                                <option value="kr" data-group="country">KR - 韩国</option>
+                                <option value="kz" data-group="country">KZ - 哈萨克斯坦</option>
+                                <option value="la" data-group="country">LA - 老挝</option>
+                                <option value="lk" data-group="country">LK - 斯里兰卡</option>
+                                <option value="lt" data-group="country">LT - 立陶宛</option>
+                                <option value="ma" data-group="country">MA - 摩洛哥</option>
+                                <option value="md" data-group="country">MD - 摩尔多瓦</option>
+                                <option value="mg" data-group="country">MG - 马达加斯加</option>
+                                <option value="mk" data-group="country">MK - 北马其顿</option>
+                                <option value="mx" data-group="country">MX - 墨西哥</option>
+                                <option value="ng" data-group="country">NG - 尼日利亚</option>
+                                <option value="nl" data-group="country">NL - 荷兰</option>
+                                <option value="no" data-group="country">NO - 挪威</option>
+                                <option value="ph" data-group="country">PH - 菲律宾</option>
+                                <option value="pk" data-group="country">PK - 巴基斯坦</option>
+                                <option value="pl" data-group="country">PL - 波兰</option>
+                                <option value="pt" data-group="country">PT - 葡萄牙</option>
+                                <option value="re" data-group="country">RE - 留尼汪</option>
+                                <option value="ro" data-group="country">RO - 罗马尼亚</option>
+                                <option value="rs" data-group="country">RS - 塞尔维亚</option>
+                                <option value="ru" data-group="country">RU - 俄罗斯</option>
+                                <option value="sa" data-group="country">SA - 沙特阿拉伯</option>
+                                <option value="sd" data-group="country">SD - 苏丹</option>
+                                <option value="se" data-group="country">SE - 瑞典</option>
+                                <option value="sg" data-group="country">SG - 新加坡</option>
+                                <option value="sk" data-group="country">SK - 斯洛伐克</option>
+                                <option value="sv" data-group="country">SV - 萨尔瓦多</option>
+                                <option value="th" data-group="country">TH - 泰国</option>
+                                <option value="tn" data-group="country">TN - 突尼斯</option>
+                                <option value="tr" data-group="country">TR - 土耳其</option>
+                                <option value="tw" data-group="country">TW - 中国台湾</option>
+                                <option value="ua" data-group="country">UA - 乌克兰</option>
+                                <option value="uk" data-group="country">UK - 英国</option>
+                                <option value="us" data-group="country">US - 美国</option>
+                                <option value="uz" data-group="country">UZ - 乌兹别克斯坦</option>
+                                <option value="ve" data-group="country">VE - 委内瑞拉</option>
+                                <option value="vi" data-group="country">VI - 美属维尔京群岛</option>
+                                <option value="vn" data-group="country">VN - 越南</option>
+                                <option value="za" data-group="country">ZA - 南非</option>
+                            </select>
+                            <select multiple class="hidden-select" id="settingsExcludedTags" name="excluded_tags"></select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn" style="background-color: rgb(249, 207, 0); color: black;">保存设置</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <p class="mb-0">
+                由 <a href="https://github.com/soxoj/maigret" target="_blank">Maigret</a> |
+                遵循 <a href="https://github.com/soxoj/maigret/blob/main/LICENSE" target="_blank">MIT
+                    License</a>
+            </p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('theme-toggle').addEventListener('click', function () {
+            const html = document.documentElement;
+            if (html.getAttribute('data-bs-theme') === 'dark') {
+                html.setAttribute('data-bs-theme', 'light');
+            } else {
+                html.setAttribute('data-bs-theme', 'dark');
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const initialSelected = {{ web_settings.tags | tojson }};
+            const initialExcluded = {{ web_settings.excluded_tags | tojson }};
+            const initialSites = {{ web_settings.site_list | tojson }};
+
+            // Tag cloud: include/exclude (whitelist/blacklist) cycling
+            const tagCloud = document.getElementById('settingsTagCloud');
+            const hiddenSelect = document.getElementById('settingsTags');
+            const excludedSelect = document.getElementById('settingsExcludedTags');
+            const allTags = Array.from(hiddenSelect.options).map(opt => ({
+                value: opt.value,
+                label: opt.text,
+                group: opt.dataset.group || 'category'
+            }));
+
+            function updateTagSelects() {
+                Array.from(hiddenSelect.options).forEach(opt => opt.selected = false);
+                excludedSelect.innerHTML = '';
+                document.querySelectorAll('#settingsTagCloud .tag').forEach(tagEl => {
+                    const val = tagEl.dataset.value;
+                    if (tagEl.classList.contains('selected')) {
+                        const option = Array.from(hiddenSelect.options).find(opt => opt.value === val);
+                        if (option) option.selected = true;
+                    } else if (tagEl.classList.contains('excluded')) {
+                        const opt = document.createElement('option');
+                        opt.value = val;
+                        opt.selected = true;
+                        excludedSelect.appendChild(opt);
+                    }
+                });
+            }
+
+            let lastGroup = '';
+            allTags.forEach(tag => {
+                if (tag.group !== lastGroup && tag.group === 'country') {
+                    const separator = document.createElement('div');
+                    separator.style.cssText = 'width:100%;margin:8px 0 4px;padding:4px 0;border-top:1px solid rgba(0,0,0,0.15);font-size:13px;color:#666;';
+                    separator.textContent = '国家/地区';
+                    tagCloud.appendChild(separator);
+                }
+                lastGroup = tag.group;
+
+                const tagElement = document.createElement('span');
+                tagElement.className = 'tag';
+                tagElement.textContent = tag.label;
+                tagElement.dataset.value = tag.value;
+                if (initialSelected.includes(tag.value)) tagElement.classList.add('selected');
+                if (initialExcluded.includes(tag.value)) tagElement.classList.add('excluded');
+
+                tagElement.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    if (this.classList.contains('selected')) {
+                        this.classList.remove('selected');
+                        this.classList.add('excluded');
+                    } else if (this.classList.contains('excluded')) {
+                        this.classList.remove('excluded');
+                    } else {
+                        this.classList.add('selected');
+                    }
+                    updateTagSelects();
+                });
+
+                tagCloud.appendChild(tagElement);
+            });
+            updateTagSelects();
+
+            // Site picker: chips + lazily-loaded datalist (avoids a DB read on every page)
+            const siteInput = document.getElementById('settingsSiteInput');
+            const siteHiddenInput = document.getElementById('settings-site');
+            const selectedSitesContainer = document.getElementById('settingsSelectedSites');
+            const siteDatalist = document.getElementById('settingsSiteOptions');
+            let selectedSites = new Set(initialSites);
+            let sitesLoaded = false;
+
+            function updateSiteHiddenInput() {
+                siteHiddenInput.value = Array.from(selectedSites).join(',');
+            }
+
+            function addSite(site) {
+                if (site && !selectedSites.has(site)) {
+                    selectedSites.add(site);
+                    updateSiteHiddenInput();
+                    const siteElement = document.createElement('span');
+                    siteElement.className = 'selected-site';
+                    siteElement.innerHTML = `${site}<span class="remove-site" data-site="${site}">&times;</span>`;
+                    selectedSitesContainer.appendChild(siteElement);
+                }
+            }
+
+            function removeSite(site) {
+                selectedSites.delete(site);
+                updateSiteHiddenInput();
+                selectedSitesContainer.querySelectorAll('.selected-site').forEach(el => {
+                    if (el.querySelector('.remove-site').dataset.site === site) el.remove();
+                });
+            }
+
+            initialSites.forEach(site => {
+                const siteElement = document.createElement('span');
+                siteElement.className = 'selected-site';
+                siteElement.innerHTML = `${site}<span class="remove-site" data-site="${site}">&times;</span>`;
+                selectedSitesContainer.appendChild(siteElement);
+            });
+
+            document.getElementById('settingsModal').addEventListener('show.bs.modal', function () {
+                if (sitesLoaded) return;
+                sitesLoaded = true;
+                fetch("{{ url_for('api_sites') }}")
+                    .then(r => r.json())
+                    .then(data => {
+                        (data.sites || []).forEach(site => {
+                            const option = document.createElement('option');
+                            option.value = site;
+                            siteDatalist.appendChild(option);
+                        });
+                    });
+            });
+
+            siteInput.addEventListener('change', function () {
+                const value = this.value.trim();
+                if (value) {
+                    addSite(value);
+                    this.value = '';
+                }
+            });
+
+            selectedSitesContainer.addEventListener('click', function (e) {
+                if (e.target.classList.contains('remove-site')) {
+                    removeSite(e.target.dataset.site);
+                }
+            });
+
+            siteInput.addEventListener('paste', function (e) {
+                e.preventDefault();
+                const paste = (e.clipboardData || window.clipboardData).getData('text');
+                paste.split(',').map(s => s.trim()).filter(Boolean).forEach(addSite);
+            });
+        });
+    </script>
+</body>
+
+</html>

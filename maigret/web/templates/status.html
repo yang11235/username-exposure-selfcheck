@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4 text-center">
+    <h2>检索进行中…</h2>
+    <p>请求正在后台处理，结果就绪后本页会自动跳转。</p>
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">加载中…</span>
+    </div>
+    <script>
+    // Auto-refresh the page every 5 seconds to check completion
+    setTimeout(function() {
+        window.location.reload();
+    }, 5000);
+    </script>
+</div>
+{% endblock %}

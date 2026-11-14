@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+    .tag-badge {
+       background-color: #214e7b;
+       padding: 2px 8px;
+       border-radius: 12px;
+       font-size: 14px;
+       display: inline-flex;
+       align-items: center;
+       gap: 5px;
+       margin: 2px;
+       color: white;
+    }
+    
+    .profile-list {
+       list-style: none;
+       padding: 0;
+    }
+    
+    .profile-item {
+       margin-bottom: 10px;
+       padding: 10px;
+       display: flex;
+       justify-content: space-between;
+       align-items: center;
+       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .profile-link {
+       display: flex;
+       align-items: center;
+       gap: 8px;
+    }
+    
+    .favicon {
+       width: 16px;
+       height: 16px;
+    }
+    
+    .tag-container {
+       display: flex;
+       flex-wrap: wrap;
+       gap: 5px;
+       justify-content: flex-end;
+    }
+    
+    .report-container {
+       margin-bottom: 1rem;
+    }
+    
+    .report-header {
+       cursor: pointer;
+       padding: 1rem;
+       background: rgba(255, 255, 255, 0.05);
+       border-radius: 4px;
+       margin-bottom: 0.5rem;
+    }
+    
+    .report-content {
+       display: none;
+    }
+    
+    .report-content.show {
+       display: block;
+    }
+    
+    .chevron::after {
+       content: '▼';
+       margin-left: 8px;
+       transition: transform 0.2s;
+    }
+    
+    .chevron.collapsed::after {
+       transform: rotate(-90deg);
+    }
+
+    /* 画像卡片：聚合各站点抽到的字段，避免结果页只有一串链接 */
+    .profile-card {
+       border: 1px solid var(--bs-border-color);
+       border-radius: 8px;
+       padding: 1rem 1.2rem;
+       margin-bottom: 1.5rem;
+       background: rgba(127, 127, 127, 0.06);
+    }
+    .profile-head {
+       display: flex;
+       align-items: baseline;
+       gap: 0.75rem;
+       flex-wrap: wrap;
+    }
+    .profile-brief {
+       margin: 0.6rem 0 0.8rem;
+       color: var(--bs-secondary-color, #6c757d);
+    }
+    .profile-grid {
+       display: grid;
+       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+       gap: 0.35rem 1.5rem;
+    }
+    .profile-grid .kv {
+       display: flex;
+       gap: 0.5rem;
+       font-size: 0.92rem;
+       line-height: 1.55;
+    }
+    .profile-grid .k {
+       flex: 0 0 4.8rem;
+       color: var(--bs-secondary-color, #6c757d);
+    }
+    .profile-grid .v {
+       flex: 1 1 auto;
+       word-break: break-word;
+    }
+    .profile-grid .v em {
+       font-style: normal;
+       opacity: 0.55;
+    }
+    .profile-grid .tagpair {
+       display: inline-block;
+       white-space: nowrap;
+       margin-right: 0.45rem;
+    }
+    .profile-item {
+       flex-wrap: wrap;
+    }
+    .acct-fields {
+       flex-basis: 100%;
+       margin-top: 0.35rem;
+       display: flex;
+       flex-wrap: wrap;
+       gap: 0.25rem 1rem;
+       font-size: 0.84rem;
+       color: var(--bs-secondary-color, #6c757d);
+    }
+    .acct-fields b {
+       font-weight: 600;
+       margin-right: 0.3rem;
+       color: var(--bs-body-color);
+    }
+    .ai-out {
+       margin-top: 0.9rem;
+       padding-top: 0.9rem;
+       border-top: 1px solid var(--bs-border-color);
+       white-space: pre-wrap;
+       font-size: 0.92rem;
+       line-height: 1.7;
+    }
+    .ai-out.ai-error {
+       color: var(--bs-danger, #dc3545);
+    }
+
+    /* 核心账号比对 */
+    .anchor-badge {
+       margin-left: 0.5rem;
+       padding: 1px 7px;
+       border-radius: 10px;
+       font-size: 0.75rem;
+       white-space: nowrap;
+    }
+    .anchor-badge.lv-high { background: #198754; color: #fff; }
+    .anchor-badge.lv-mid { background: #ffc107; color: #000; }
+    .anchor-badge.lv-low { background: #6c757d; color: #fff; }
+    .anchor-badge.lv-core { background: #0dcaf0; color: #000; }
+    .profile-item.anchor-low { opacity: 0.45; }
+    .anchor-out {
+       margin-top: 0.9rem;
+       padding-top: 0.9rem;
+       border-top: 1px solid var(--bs-border-color);
+       font-size: 0.9rem;
+    }
+
+    /* 中文补检表格 */
+    .cn-out {
+       margin-top: 0.9rem;
+       padding-top: 0.9rem;
+       border-top: 1px solid var(--bs-border-color);
+       font-size: 0.9rem;
+    }
+    .cn-out table { width: 100%; }
+    .cn-out th, .cn-out td { padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--bs-border-color); }
+    .cn-out .cn-note { color: var(--bs-secondary-color, #6c757d); font-size: 0.85rem; margin: 0.4rem 0 0; }
+    </style>
+
+    <div class="form-container">
+        <h1 class="mb-4">检索结果</h1>
+
+        <p>检索已完成。<a href="{{ url_for('index')}}">返回首页</a></p>
+
+        {% for report in individual_reports %}{% if report.profile %}
+        <div class="profile-card">
+            <div class="profile-head">
+                <h3 class="mb-0">{{ report.username }} 的画像</h3>
+                <span class="text-muted">命中 {{ report.profile.accounts }} 个站点</span>
+                <button type="button" class="btn btn-sm btn-outline-warning ms-auto ai-btn" data-job="{{ timestamp }}">AI 分析</button>
+                <button type="button" class="btn btn-sm btn-outline-info ms-1 cn-btn" data-job="{{ timestamp }}">中文补检</button>
+            </div>
+            {% if report.profile.brief %}<p class="profile-brief">{{ report.profile.brief }}</p>{% endif %}
+            <div class="profile-grid">
+                {% for label, value in report.profile.fields %}
+                <div class="kv"><span class="k">{{ label }}</span><span class="v">{{ value }}</span></div>
+                {% endfor %}
+                {% if report.profile.first_seen %}
+                <div class="kv"><span class="k">最早记录</span><span class="v">{{ report.profile.first_seen }}</span></div>
+                {% endif %}
+                {% if report.profile.countries %}
+                <div class="kv"><span class="k">国家/地区</span><span class="v">{% for name, n in report.profile.countries %}<span class="tagpair">{{ name }}<em>×{{ n }}</em></span>{% endfor %}</span></div>
+                {% endif %}
+                {% if report.profile.interests %}
+                <div class="kv"><span class="k">兴趣领域</span><span class="v">{% for name, n in report.profile.interests %}<span class="tagpair">{{ name }}<em>×{{ n }}</em></span>{% endfor %}</span></div>
+                {% endif %}
+            </div>
+            <div class="ai-out" hidden></div>
+            <div class="cn-out" hidden></div>
+            <div class="anchor-out" hidden></div>
+        </div>
+        {% endif %}{% endfor %}
+     
+        {% if graph_file %}
+        <h3>合并关系图</h3>
+        <iframe src="{{ url_for('download_report', filename=graph_file) }}" style="width:100%; height:600px; border:none;"></iframe>
+        {% endif %}
+     
+        <hr>
+     
+        {% if individual_reports %}
+        <h3>单独报告</h3>
+        <div class="reports-list">
+            {% for report in individual_reports %}
+            <div class="report-container">
+                <div class="report-header" onclick="toggleReport(this)" data-target="report-{{ loop.index }}">
+                    <h5 class="mb-0 d-flex align-items-center">
+                        <span>{{ report.username }}</span>
+                        <span class="chevron"></span>
+                    </h5>
+                </div>
+                <div id="report-{{ loop.index }}" class="report-content">
+                    <p>
+                        <a href="{{ url_for('download_report', filename=report.csv_file) }}" target="_blank" rel="noopener">CSV 报告</a> |
+                        <a href="{{ url_for('download_report', filename=report.json_file) }}" target="_blank" rel="noopener">JSON 报告</a> |
+                        <a href="{{ url_for('download_report', filename=report.pdf_file) }}" target="_blank" rel="noopener">PDF 报告</a> |
+                        <a href="{{ url_for('download_report', filename=report.html_file) }}" target="_blank" rel="noopener">HTML 报告</a>
+                    </p>
+                    {% if report.claimed_profiles %}
+                    <strong>已注册账号：</strong>
+                    <ul class="profile-list">
+                        {% for profile in report.claimed_profiles %}
+                        <li class="profile-item" data-site="{{ profile.site_name }}" data-user="{{ report.username }}">
+                            <div class="profile-link">
+                                <img class="favicon" src="https://www.google.com/s2/favicons?domain={{ profile.url }}" onerror="this.style.display='none'" alt="">
+                                <a href="{{ profile.url }}" target="_blank">{{ profile.site_name }}</a>
+                                <button type="button" class="btn btn-sm btn-outline-secondary ms-2 anchor-btn" data-site="{{ profile.site_name }}" data-user="{{ report.username }}" data-job="{{ timestamp }}">设为核心</button>
+                            </div>
+                            {% if profile.tags %}
+                            <div class="tag-container">
+                                {% for tag in profile.tags %}
+                                <span class="tag-badge">{{ tag }}</span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        
+                            {% if profile.fields %}
+                            <div class="acct-fields">
+                                {% for label, value in profile.fields %}<span><b>{{ label }}</b>{{ value }}</span>{% endfor %}
+                            </div>
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p>没有找到已注册账号。</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p>没有可用的单独报告。</p>
+        {% endif %}
+     </div>
+     
+     <script>
+     function toggleReport(header) {
+        const reportId = header.getAttribute('data-target');
+        const content = document.getElementById(reportId);
+        content.classList.toggle('show');
+        header.querySelector('.chevron').classList.toggle('collapsed');
+     }
+     </script>
+
+<script>
+const LEVEL_CLASS = { '高': 'lv-high', '中': 'lv-mid', '低': 'lv-low' };
+
+const AUTO_ANCHOR = {{ (anchor | tojson) if anchor else 'null' }};
+
+document.querySelectorAll('.anchor-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function (event) {
+        event.stopPropagation();
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '比对中…';
+        try {
+            const resp = await fetch('/api/anchor/' + btn.dataset.job, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ site: btn.dataset.site, username: btn.dataset.user })
+            });
+            const data = await resp.json();
+            if (!data.ok) { alert(data.error || '比对失败'); return; }
+            applyAnchor(data);
+        } catch (err) {
+            alert('请求失败：' + err);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = label;
+        }
+    });
+});
+
+function rowsOf(user) {
+    return Array.prototype.filter.call(
+        document.querySelectorAll('.profile-item[data-site]'),
+        function (r) { return r.dataset.user === user; }
+    );
+}
+
+function applyAnchor(data) {
+    const rows = rowsOf(data.username);
+    const find = function (site) {
+        return rows.find(function (r) { return r.dataset.site === site; }) || null;
+    };
+    data.items.forEach(function (it) {
+        const row = find(it.site);
+        if (!row) return;
+        let badge = row.querySelector('.anchor-badge');
+        if (!badge) { badge = document.createElement('span'); row.appendChild(badge); }
+        badge.textContent = it.level + ' ' + it.score;
+        badge.className = 'anchor-badge ' + (LEVEL_CLASS[it.level] || 'lv-low');
+        badge.title = it.reasons.join('；');
+        row.classList.toggle('anchor-low', it.level === '低');
+    });
+    const coreRow = find(data.anchor);
+    if (coreRow) {
+        let badge = coreRow.querySelector('.anchor-badge');
+        if (!badge) { badge = document.createElement('span'); coreRow.appendChild(badge); }
+        badge.textContent = '核心';
+        badge.className = 'anchor-badge lv-core';
+        coreRow.classList.remove('anchor-low');
+    }
+
+    const box = document.querySelector('.anchor-out');
+    if (!box) return;
+    box.hidden = false;
+    box.innerHTML = '核心账号：<b>' + data.anchor + '</b>' + (data.username ? '（' + data.username + '）' : '') + ' · 高 ' + data.counts['高']
+        + ' / 中 ' + data.counts['中'] + ' / 低 ' + data.counts['低']
+        + ' <label class="ms-3"><input type="checkbox" id="hideLow"> 隐藏低相关</label>';
+    document.getElementById('hideLow').addEventListener('change', function () {
+        rows.filter(function (r) { return r.classList.contains('anchor-low'); }).forEach(function (row) {
+            row.style.display = this.checked ? 'none' : '';
+        }, this);
+    });
+}
+
+// 从主页 URL 发起检索时，自动以该主页对应的账号为核心并立即比对
+if (AUTO_ANCHOR && AUTO_ANCHOR.site) {
+    const target = Array.prototype.find.call(
+        document.querySelectorAll('.anchor-btn'),
+        function (b) { return b.dataset.site === AUTO_ANCHOR.site; }
+    );
+    if (target) {
+        // 等 DOM 稳定后再点，避免与折叠动画抢时序
+        setTimeout(function () { target.click(); }, 300);
+    }
+}
+</script>
+
+<script>
+document.querySelectorAll('.ai-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+        const card = btn.closest('.profile-card');
+        const out = card.querySelector('.ai-out');
+        btn.disabled = true;
+        btn.textContent = '分析中…';
+        out.hidden = false;
+        out.classList.remove('ai-error');
+        out.textContent = '正在调用模型分析，通常需要 10–30 秒…';
+        try {
+            const resp = await fetch('/api/ai/' + btn.dataset.job, { method: 'POST' });
+            const data = await resp.json();
+            out.textContent = data.ok ? data.text : (data.error || '调用失败');
+            out.classList.toggle('ai-error', !data.ok);
+        } catch (err) {
+            out.textContent = '请求失败：' + err;
+            out.classList.add('ai-error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'AI 分析';
+        }
+    });
+});
+</script>
+<script>
+document.querySelectorAll('.cn-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+        const card = btn.closest('.profile-card');
+        const out = card.querySelector('.cn-out');
+        btn.disabled = true;
+        btn.textContent = '查询中…';
+        out.hidden = false;
+        out.textContent = '正在查询 B站、微博、贴吧…';
+        try {
+            const resp = await fetch('/api/cn/' + btn.dataset.job, { method: 'POST' });
+            const data = await resp.json();
+            if (!data.ok) {
+                out.textContent = data.error || '补检失败';
+                return;
+            }
+            const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+            let html = '';
+            if (data.items.length) {
+                html += '<table><thead><tr><th>平台</th><th>昵称</th><th>置信</th><th>说明</th></tr></thead><tbody>';
+                for (const it of data.items) {
+                    html += '<tr><td>' + esc(it.platform) + '</td>'
+                        + '<td><a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.name) + '</a></td>'
+                        + '<td>' + esc(it.confidence) + '</td><td>' + esc(it.extra) + '</td></tr>';
+                }
+                html += '</tbody></table>';
+            } else {
+                html += '<p class="mb-1">没有搜到同名账号。</p>';
+            }
+            for (const note of data.notes) html += '<p class="cn-note">' + esc(note) + '</p>';
+            out.innerHTML = html;
+        } catch (err) {
+            out.textContent = '请求失败：' + err;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '中文补检';
+        }
+    });
+});
+</script>
+{% endblock %}

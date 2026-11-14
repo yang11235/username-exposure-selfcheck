@@ -1,0 +1,116 @@
+<html>
+<head>
+    <meta charset="utf-8" />
+</head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no" />
+<title>{{ username }} —— 用户名暴露自检报告</title>
+<body>
+    <div class="container">
+        <div class="row-mb">
+            <div class="col-12 card-body" style="padding-bottom: 0.5rem; width:100%">
+                <h2 class="mb-0">
+                    {{ username }} 的用户名检索报告
+                </h2>
+                <small>由 <a href="https://github.com/soxoj/maigret">Maigret</a> 生成于 {{ generated_at }}</small>
+            </div>
+        </div>
+        <br/><br/>
+        <div>
+                <div>
+                    <div>
+                        <div>
+                            <h3>推断的个人信息</h3>
+                            {% for k, v in supposed_data.items() %}
+                            <p>
+                                {{ k }}: {{ v }}
+                            </p>
+                            {% endfor %}
+                            {% if countries_tuple_list %}
+                            <p>
+                                地区：{% for k, v in countries_tuple_list %}{{ k }} <span class="text-muted">({{ v }})</span>{{ ", " if not loop.last }}{% endfor %}
+                            </p>
+                            {% endif %}{% if interests_tuple_list %}
+                            <p>
+                                兴趣：{% for k, v in interests_tuple_list %}{{ k }} <span class="text-muted">({{ v }})</span>{{ ", " if not loop.last }}{% endfor %}
+                            </p>
+                            {% endif %}{% if first_seen %}
+                            <p>
+                                首次出现：{{ first_seen }}
+                            </p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <br/>
+            <div>
+                <div>
+                    <div>
+                        <div>
+                            <h3>概要</h3>
+                            <p>
+                                {{ brief }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% for u, t, data in results %}
+                {% for k, v in data.items() %}
+                    {% if v.found and not v.is_similar %}
+            <split></split>
+            <hr>
+            <br/>
+            <div class="sitebox" style="margin-top: 20px;" >
+                <div>
+                    <div>
+                        <table>
+                            <tr>
+                                <td valign="top">
+                                    <div class="textbox" style="padding-top: 10px;" >
+                                        <h3>
+                                            <a class="text-dark" href="{{ v.url_main }}" target="_blank">{{ k }}</a>
+                                        </h3>
+                                        {% if v.status.tags %}
+                                            <div class="mb-1 text-muted">标签：{{ v.status.tags | join(', ') }}</div>
+                                        {% endif %}
+                                        <p class="card-text">
+                                            <a href="{{ v.url_user }}" target="_blank">{{ v.url_user }}</a>
+                                            <span class="text-muted small">(<a href="https://web.archive.org/web/*/{{ v.url_user }}" target="_blank">web.archive.org</a>, <a href="https://archive.is/newest/{{ v.url_user }}" target="_blank">archive.is</a>)</span>
+                                        </p>
+                                    </div>
+                                    {% if v.ids_data %}
+                                    <div style="clear:both;"></div>
+                                    <div style="width:100%">
+                                    <br/>
+                                    <h4>详细信息</h4>
+                                    <table class="table table-striped;" style="margin-top:5px;">
+                                        <tbody>
+                                        {% for k1, v1 in v.ids_data.items() %}
+                                            {% if k1 != 'image' %}
+                                            <tr>
+                                                <th style="width:200px;">{{ title(k1) }}</th>
+                                                <td>{% if v1 is iterable and (v1 is not string and v1 is not mapping) %}{{ v1 | join(', ') }}{% else %}{{ detect_link(v1) }}{% endif %}</td>
+                                            </tr>
+                                            {% endif %}
+
+                                        {% endfor %}
+                                        </tbody>
+                                    </table>
+                                    </div>
+                                    {% endif %}
+                                </td>
+                                <td style="width:201px; position: relative;" valign="top">
+                                    <img alt="Photo" style="width: 200px; height: 200px; object-fit: scale-down;" src="{{ v.status.ids_data.image or 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' }}" data-holder-rendered="true">
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+    </div>
+</body>
+</html>

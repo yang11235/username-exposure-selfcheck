@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="form-container">
+    <h1 class="mb-4">检索历史</h1>
+
+    {% if not entries %}
+    <p>还没有执行过检索。</p>
+    {% else %}
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>开始时间</th>
+                <th>用户名</th>
+                <th>命中</th>
+                <th>状态</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for result in entries %}
+            <tr>
+                <td>{{ result.started_at or '—' }}</td>
+                <td>{{ result.usernames | join(', ') if result.usernames else '—' }}</td>
+                <td>{{ result.found_count if result.status == 'completed' else '—' }}</td>
+                <td>
+                    {% if result.status == 'completed' %}
+                    <span class="badge bg-success">已完成</span>
+                    {% else %}
+                    <span class="badge bg-danger" title="{{ result.error }}">失败</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if result.status == 'completed' %}
+                    <a href="{{ url_for('results', session_id=result.session_folder) }}" class="btn btn-sm btn-outline-warning">查看</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</div>
+{% endblock %}
