@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .main-search-section {
+        background: rgba(255, 255, 255, 0.03);
+        padding: 2rem;
+        border-radius: 8px;
+        margin-bottom: 2rem;
+    }
+
+    .search-button {
+        width: 100%;
+        padding: 1rem;
+        font-size: 1.2rem;
+        margin-top: 2rem;
+    }
+</style>
+
+<div class="form-container">
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('live_start') }}" class="mb-4">
+        <div class="main-search-section">
+            <div class="mb-4">
+                <label for="usernames" class="form-label h5">要检索的用户名</label>
+                <textarea class="form-control" id="usernames" name="usernames" rows="3" required
+                    placeholder="输入一个或多个用户名，用空格或逗号分隔…"></textarea>
+            </div>
+
+            <div class="btn-group" role="group" aria-label="检索模式">
+                <input type="radio" class="btn-check" name="mode" id="mode-fast" value="fast" checked>
+                <label class="btn btn-outline-secondary" for="mode-fast">快速检索（{{ web_settings.top_sites }} 个站点）</label>
+                <input type="radio" class="btn-check" name="mode" id="mode-full" value="full">
+                <label class="btn btn-outline-secondary" for="mode-full">全量检索</label>
+            </div>
+
+            <div class="row g-2 mt-3">
+                <div class="col-md-7">
+                    <label for="parse_url" class="form-label">从主页 URL 开始（可选）</label>
+                    <input type="text" class="form-control" id="parse_url" name="parse_url"
+                        placeholder="https://github.com/soxoj —— 从页面里抽出其它 ID/用户名一起查">
+                </div>
+                <div class="col-md-5 d-flex align-items-end">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="permute" name="permute"
+                            {{ 'checked' if web_settings.permute }}>
+                        <label class="form-check-label" for="permute">生成用户名变体（需两个以上名字，如 john doe）</label>
+                        <input type="hidden" name="permute_touched" value="1">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <p class="text-muted">
+            筛选、代理和高级选项都在
+            <a href="#" data-bs-toggle="modal" data-bs-target="#settingsModal">设置</a>里（右上角 &#9881;）。
+        </p>
+
+        <button type="submit" id="startBtn" class="btn search-button" style="background-color: rgb(249, 207, 0); color: black;">
+            开始检索
+        </button>
+    </form>
+</div>
+{% endblock %}

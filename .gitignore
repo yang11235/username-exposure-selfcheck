@@ -1,0 +1,60 @@
+# Virtual Environment
+venv/
+.venv/
+
+# Editor Configurations
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+
+# Pip
+src/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Logs and backups
+*.log
+*.bak
+
+# Output files, except requirements.txt
+*.txt
+!requirements.txt
+
+# Comma-Separated Values (CSV) Reports
+*.csv
+
+# MacOS Folder Metadata File
+.DS_Store
+/reports/
+
+# Testing
+.coverage
+dist/
+htmlcov/
+/test_*
+
+# Maigret files
+settings.json
+web_settings.json
+
+# other
+*.egg-info
+build
+LLM
+lib
+.claude/
+
+# Sphinx i18n: .mo are compiled from .po at build time
+docs/source/locale/**/*.mo
+
+# Secrets
+.env
+
+# 本仓库：运行期数据（Cookie、设置、报告）不应提交
+cookies.txt
+web_settings.json
+.maigret/
