@@ -2367,15 +2367,21 @@ def test_load_cookie_jar_skips_the_work_when_cookies_are_off():
     logger.warning.assert_not_called()
 
 
-def test_load_cookie_jar_reads_an_existing_file():
+def test_load_cookie_jar_reads_an_existing_file(tmp_path):
     """文件在的时候行为不变：真的去解析。
 
     `aiohttp.CookieJar()` 要一个运行中的事件循环，所以这里得在协程里调——
     真实调用点（`maigret.search`）本来就跑在 asyncio 里。
+
+    自己写临时文件而不是读仓库根目录的 `cookies_test.txt`：那个文件是
+    `test_activation.py` 跑测试时落下的产物，谁先跑谁后跑决定了这里跳不跳过。
     """
-    path = Path(__file__).resolve().parent.parent / 'cookies_test.txt'
-    if not path.exists():
-        pytest.skip('仓库里没有 cookies_test.txt')
+    path = tmp_path / 'cookies.txt'
+    path.write_text(
+        '# Netscape HTTP Cookie File\n'
+        'localhost\tFALSE\t/\tFALSE\t0\ta\tb\n',
+        encoding='utf-8',
+    )
 
     async def load():
         return load_cookie_jar(str(path), Mock())

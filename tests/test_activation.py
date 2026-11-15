@@ -51,12 +51,13 @@ async def test_vimeo_activation(default_db):
 
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_import_aiohttp_cookies(cookie_test_server):
-    cookies_filename = 'cookies_test.txt'
-    with open(cookies_filename, 'w') as f:
-        f.write(COOKIES_TXT)
+async def test_import_aiohttp_cookies(cookie_test_server, tmp_path):
+    # 写到 tmp_path 而不是仓库根目录：这里原本直接 open('cookies_test.txt', 'w')，
+    # 每跑一次测试就在工作区留下一个"看起来像真凭据"的文件。
+    cookies_filename = tmp_path / 'cookies_test.txt'
+    cookies_filename.write_text(COOKIES_TXT)
 
-    cookie_jar = import_aiohttp_cookies(cookies_filename)
+    cookie_jar = import_aiohttp_cookies(str(cookies_filename))
     url = f'http://localhost:{LOCAL_SERVER_PORT}/cookies'
 
     cookies = cookie_jar.filter_cookies(yarl.URL(url))
