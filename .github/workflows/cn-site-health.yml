@@ -1,0 +1,136 @@
+name: 中文站点规则自检
+
+# 为什么单独一个 workflow、而不是挂在 python-package.yml 里：
+#
+# 这个任务**依赖真实网络**。站点改版、风控、CDN 抖动都会影响结果，
+# 把它塞进主 CI 会让每个 PR 都可能因为"知乎今天抽风"而变红——
+# 那会把告警训练成噪音，最后没人再看。
+#
+# 所以它按天跑，只在**规则真的失效**时红（见 utils/cn_selfcheck.py 的退出码）：
+#   - 规则失效（RULE）：正例/反例判不出来 → 我们自己的问题 → 红
+#   - 环境受限（ENV）：被风控、需要登录、超时 → 改规则也修不好 → 只记录
+#
+# 后者占大头。把它当失败处理，等于每天都是红的，也就等于没有告警。
+
+on:
+  schedule:
+    # 每天 03:17 UTC（北京时间 11:17）。刻意避开整点：GitHub 的定时任务
+    # 在整点会排长队，延迟十几分钟是常态。
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: "只检查这些站点（空格分隔，留空检查全部）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+# 同一时间只允许一个自检在跑：两个任务同时改健康看板会互相覆盖。
+concurrency:
+  group: cn-site-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # CI 里没有浏览器，也没有登录态。浏览器执行器必须关掉：
+      # 开着它只会让"该站点需要浏览器"的站点多等一次连接超时。
+      MAIGRET_CN_BROWSER: "0"
+      # 关掉数据库自动更新：自检要测的是**仓库里这份规则**，
+      # 不能悄悄换成远端最新库，否则红的那条规则可能根本不在代码里。
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          # 自检只依赖 aiohttp：它直接读仓库里的 sites_cn.json + data.json，
+          # 走的是纯 stdlib 的 overlay/schema/verdict。不装全量依赖是刻意的——
+          # 全量里有 xhtml2pdf 这类带系统库的包，自检用不到，
+          # 装了只会让这个每日任务因为无关的依赖问题而红。
+          python -m pip install aiohttp
+
+      - name: 运行规则自检
+        id: selfcheck
+        env:
+          # 通过环境变量传，不用 ${{ }} 直接拼进 shell：
+          # workflow_dispatch 的输入是人手填的，拼进命令行等于给了 shell 注入口。
+          SITES: ${{ github.event.inputs.sites }}
+        run: |
+          # GitHub 默认用 `bash -e`，中途失败会直接中断，$? 根本读不到。
+          # 必须显式关掉，才能把退出码带出去给后面的判断用。
+          #
+          # 用 --json-out 而不是 `> selfcheck.json`：自检会同时打印人类可读的
+          # 进度行，重定向会把它们和 JSON 混在一个文件里，json.load() 直接报错。
+          # --json-out 保证文件里只有 JSON。
+          set +e
+          python utils/cn_selfcheck.py --write-doc --json-out selfcheck.json ${SITES:+--site $SITES}
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "自检退出码：$code"
+
+      - name: 打印摘要
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          p = pathlib.Path("selfcheck.json")
+          if not p.exists() or not p.stat().st_size:
+              print("没有产出结果文件")
+              raise SystemExit(0)
+          rows = json.loads(p.read_text(encoding="utf-8"))
+          rule = [r for r in rows if r.get("result") == "FAIL" and r.get("kind") == "RULE"]
+          env  = [r for r in rows if r.get("result") == "FAIL" and r.get("kind") != "RULE"]
+          print(f"共 {len(rows)} 个站点：{len(rows)-len(rule)-len(env)} 通过 / "
+                f"{len(rule)} 规则失效 / {len(env)} 环境受限")
+          for r in rule:
+              print(f"  [规则失效] {r.get('site')}: {r.get('detail', '')}")
+          PY
+
+      - name: 上传自检结果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cn-selfcheck
+          path: |
+            selfcheck.json
+            docs/cn-health.md
+          retention-days: 30
+
+      # 健康看板推到独立分支，不直接改 main。
+      # 自动提交到 main 会让"代码变化"和"站点今天抽风"混在一起，
+      # 也让 review 失去意义。
+      - name: 提交健康看板到 cn-health 分支
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          if git diff --quiet -- docs/cn-health.md; then
+            echo "健康看板没有变化，跳过提交"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B cn-health
+          git add docs/cn-health.md
+          git commit -m "chore(cn): 更新站点健康看板 [skip ci]"
+          git push --force origin cn-health
+
+      - name: 规则失效则失败
+        if: steps.selfcheck.outputs.exit_code != '0'
+        run: |
+          echo "::error::有站点的规则失效了（正例或反例判不出来）。"
+          echo "被风控/需登录的站点只记录不报错，所以这条红是真的需要改规则。"
+          echo "用 --dump-response 看原始响应，再改 sites_cn.json 的 e/m 字段。"
+          exit 1

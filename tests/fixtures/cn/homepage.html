@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>张三 - 知乎</title>
+  <link rel="stylesheet" href="https://static.zhihu.com/heifetz/main.app.8f1b2c4d.css">
+  <style>
+    :root{--blue:#056de8;--grey:#8590a6;--line:#ebebeb}
+    body{margin:0;background:#f6f6f6;color:#121212;font-size:15px;line-height:1.67;
+      font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif}
+    a{color:inherit;text-decoration:none}
+    .AppHeader{position:sticky;top:0;z-index:100;height:52px;background:#fff;display:flex;align-items:center;
+      padding:0 24px;box-shadow:0 1px 3px rgba(18,18,18,.1)}
+    .AppHeader-logo{font-size:22px;font-weight:700;color:var(--blue);margin-right:32px}
+    .AppHeader-nav{display:flex;gap:28px;font-size:15px;color:#444}
+    .AppHeader-nav a:hover{color:var(--blue)}
+    .AppHeader-search{margin-left:auto;width:280px;height:34px;border-radius:17px;background:#f6f6f6;
+      border:none;padding:0 16px;font-size:14px;outline:none}
+    .App-main{max-width:1000px;margin:10px auto 60px;background:#fff;border-radius:4px;
+      box-shadow:0 1px 3px rgba(18,18,18,.1);overflow:hidden}
+    .ProfileHeader{display:flex;align-items:flex-start;padding:32px 24px 24px;border-bottom:1px solid var(--line)}
+    .Avatar{width:96px;height:96px;border-radius:50%;object-fit:cover;background:#eee;flex:0 0 auto}
+    .ProfileHeader-info{margin-left:24px;flex:1 1 auto;min-width:0}
+    .ProfileHeader-name{font-size:26px;font-weight:600;line-height:1.3;margin:0 0 6px}
+    .ProfileHeader-headline{font-size:15px;color:#444;margin-bottom:8px}
+    .ProfileHeader-detail{font-size:14px;color:var(--grey);line-height:1.8}
+    .ProfileHeader-detail span{margin-right:18px}
+    .NumberBoard{display:flex;gap:36px;margin-top:18px}
+    .NumberBoard-itemValue{font-size:18px;font-weight:600}
+    .NumberBoard-itemName{font-size:13px;color:var(--grey);margin-top:2px}
+    .Profile-tabs{display:flex;gap:36px;padding:0 24px;height:52px;align-items:center;
+      border-bottom:1px solid var(--line);font-size:16px;color:#444}
+    .Profile-tabs .is-active{font-weight:600;color:#121212}
+    .List-item{padding:20px 24px;border-bottom:1px solid var(--line)}
+    .ContentItem-title{font-size:18px;font-weight:600;line-height:1.6;margin:0 0 10px}
+    .RichText p{margin:0 0 12px;text-align:justify}
+    .ContentItem-actions{display:flex;gap:20px;font-size:14px;color:var(--grey);margin-top:6px}
+    .Modal-wrapper{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+    .Modal{width:360px;background:#fff;border-radius:6px;padding:28px 24px}
+    .Modal h3{margin:0 0 18px;font-size:17px;font-weight:600}
+    .Modal label{display:block;font-size:13px;color:var(--grey);margin:14px 0 6px}
+    .Modal input{width:100%;height:38px;border:1px solid #e4e7eb;border-radius:4px;padding:0 12px;font-size:14px;box-sizing:border-box}
+    .Modal-row{display:flex;gap:10px;align-items:flex-end}
+    .Modal button{height:38px;padding:0 16px;border:none;border-radius:4px;background:var(--blue);color:#fff;font-size:14px}
+    .Modal .send-code{background:#f2f6ff;color:var(--blue);border:1px solid #d6e4ff;white-space:nowrap}
+    .Modal-tip{font-size:12px;color:var(--grey);margin-top:16px;line-height:1.7}
+  </style>
+</head>
+<body>
+  <header class="AppHeader">
+    <a class="AppHeader-logo" href="/">知乎</a>
+    <nav class="AppHeader-nav">
+      <a href="/">首页</a>
+      <a href="/explore">发现</a>
+      <a href="/hot">热榜</a>
+      <a href="/column">专栏</a>
+      <a href="/follow">关注</a>
+      <a href="/message">消息</a>
+    </nav>
+    <input class="AppHeader-search" type="search" placeholder="搜索你感兴趣的内容">
+  </header>
+
+  <main class="App-main">
+    <div class="ProfileHeader">
+      <img class="Avatar" src="https://pic1.zhimg.com/v2-8a1f0c9e4b7d2a6f5c3e1b0d9a8f7e6c_is.jpg" alt="张三">
+      <div class="ProfileHeader-info">
+        <h1 class="ProfileHeader-name">张三</h1>
+        <div class="ProfileHeader-headline">后端工程师 / 分布式系统 / 偶尔写点前端</div>
+        <div class="ProfileHeader-detail">
+          <span>互联网行业 后端开发</span>
+          <span>上海</span>
+        </div>
+        <div class="NumberBoard">
+          <div class="NumberBoard-item">
+            <div class="NumberBoard-itemValue" title="128">128</div>
+            <div class="NumberBoard-itemName">关注</div>
+          </div>
+          <div class="NumberBoard-item">
+            <div class="NumberBoard-itemValue" title="1024">1024</div>
+            <div class="NumberBoard-itemName">关注者</div>
+          </div>
+          <div class="NumberBoard-item">
+            <div class="NumberBoard-itemValue" title="2361">2361</div>
+            <div class="NumberBoard-itemName">获得赞同</div>
+          </div>
+          <div class="NumberBoard-item">
+            <div class="NumberBoard-itemValue" title="87">87</div>
+            <div class="NumberBoard-itemName">获得收藏</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="Profile-tabs">
+      <span class="is-active">回答 37</span>
+      <span>文章 12</span>
+      <span>专栏 2</span>
+      <span>想法 56</span>
+    </div>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/456789/answer/1234567">为什么很多程序员喜欢在深夜写代码？</a></h2>
+      <div class="RichText ztext">
+        <p>白天的时间是被切碎的。早上九点半到公司，先处理夜里堆起来的值班告警，接着是十点的站会，然后被拉进两个跨团队的评审会，中间还要回若干个群消息。等到你真正坐下来读一段代码，往往已经是下午四点，而四点到七点这段时间又会被各种临时需求占满。</p>
+        <p>深夜不一样。十一点以后，办公室里只剩键盘声，手机不再震动，也没有人会在群里 @ 你说"这个接口什么时候能好"。这时候写代码，思路能连续下去，一个函数从第一行到最后一个 return 不需要中断，那种连续感在白天几乎是一种奢侈品。</p>
+        <p>还有一个不太愿意承认的原因：深夜写出来的东西，第二天自己看着往往还觉得不错，因为那时候没有人在旁边催。这不是效率问题，是心理空间的问题。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 1.2 万</span><span>评论 340</span><span>收藏 890</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/221334/answer/2245678">如何理解分布式系统中的最终一致性？</a></h2>
+      <div class="RichText ztext">
+        <p>很多人把最终一致性理解成"过一会儿就一致了"，这个说法在工程上几乎没有信息量。真正要回答的是三个问题：过多久、在什么条件下、如果不一致会看到什么。</p>
+        <p>我一般会先问业务方：一条数据从写入到对所有读请求可见，可以容忍多长的延迟？如果答案是"几百毫秒"，那你需要的是读己之写加会话粘滞；如果答案是"几分钟"，那你完全可以走异步补偿，把复杂度压到最低；如果答案是"不确定"，那通常说明业务方还没想清楚，这时候上强一致只会把问题推迟到线上。</p>
+        <p>工程上比较务实的做法是把"不一致窗口"显式建模：给每条记录带上版本号与更新时间，前端在读到旧版本时展示一个"数据同步中"的状态。用户能看见延迟，比用户以为数据丢了要好得多。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 6832</span><span>评论 128</span><span>收藏 2140</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/778812/answer/3312456">三十岁转行做后端开发还来得及吗？</a></h2>
+      <div class="RichText ztext">
+        <p>先说结论：来得及，但要把目标定得具体一点。"转行做开发"是一个太模糊的目标，模糊的目标无法拆解，也无法判断进度。</p>
+        <p>更可行的路径是先找到一个你现在行业里真实存在、又需要写代码才能解决的问题。比如你在电商公司做运营，每天要手工整理几十张表，那就写一个脚本把这件事自动化。这个脚本会成为你第一个能拿得出手的作品，因为它解决的是真实问题，而不是教程里的待办清单。</p>
+        <p>接下来是补基础。数据结构和算法不必刷到竞赛水平，但至少要知道哈希表为什么平均是常数时间、B 树索引为什么适合范围查询。这些知识决定了你以后能不能看懂性能问题，而不是只会加机器。</p>
+        <p>最后是心态。转行第一份工作的薪资大概率会降，这是入场费，不是失败。真正决定三年后位置的是你在这三年里有没有持续解决更难的问题。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 4521</span><span>评论 276</span><span>收藏 1830</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/903341/answer/4123789">为什么有些接口设计看起来很简单，实现起来却很复杂？</a></h2>
+      <div class="RichText ztext">
+        <p>接口的复杂度不会消失，只会转移。一个 GET /orders/{id} 看起来只有一行，但它背后要处理鉴权、限流、缓存一致性、分库分表路由、灰度开关，以及"这个订单属于已注销用户"这种边界情况。</p>
+        <p>我见过最典型的例子是分页。设计文档上写的是 page 和 size 两个参数，实现时才发现订单表按用户哈希分片，跨分片分页要么退化成内存排序，要么得引入游标。最后接口变成了 cursor 加 limit，前端要改，文档要改，测试用例要重写。</p>
+        <p>所以评审接口时，我会坚持问一句：这个字段在最坏情况下会是什么值？把最坏情况写进文档，比写十个正常示例有用。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 3105</span><span>评论 96</span><span>收藏 1204</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/661207/answer/5188342">线上故障复盘，最应该复盘的是什么？</a></h2>
+      <div class="RichText ztext">
+        <p>不是"谁改的"，而是"为什么这个改动能上线"。人的失误是常态，把复盘写成追责会，下一次大家只会把改动藏得更深。</p>
+        <p>我习惯按三层来问：第一层，触发条件是什么，能不能在测试环境复现；第二层，为什么监控没有在五分钟内发现，是缺指标还是告警阈值定得太松；第三层，为什么影响面这么大，是缺少降级开关，还是降级开关本身没人敢按。</p>
+        <p>三层问完，产出的待办通常是"补一个按租户维度的错误率指标""给这个下游调用加超时和熔断""把灰度从 5% 改成 1% 并延长观察窗口"。这些都是可以验收的动作，而不是"加强责任心"。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 5288</span><span>评论 154</span><span>收藏 2610</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/334521/answer/6723410">缓存穿透、击穿、雪崩到底有什么区别？</a></h2>
+      <div class="RichText ztext">
+        <p>三个词经常被混着用，但它们的失效路径完全不同，对应的解法也不一样。</p>
+        <p>穿透是查一个数据库里也不存在的键，缓存永远不命中，请求全部落到存储上。解法是缓存空值并设置较短的过期时间，或者在入口做参数合法性校验。</p>
+        <p>击穿是某个热点键过期的瞬间，大量并发请求同时回源。解法是重建时加互斥锁，或者对热点键做逻辑过期，让旧值在后台刷新期间继续服务。</p>
+        <p>雪崩是大量键在同一时刻失效，或者缓存节点整体不可用。解法是过期时间加随机抖动，以及多级缓存和限流兜底。把这三个概念分开，你才知道该加锁还是该加随机数。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 8940</span><span>评论 203</span><span>收藏 4120</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/889023/answer/7812456">如何评价"代码是写给人看的，顺便能在机器上运行"这句话？</a></h2>
+      <div class="RichText ztext">
+        <p>这句话对了一半。代码首先是写给机器看的，因为机器会严格按你写的执行，包括你没想清楚的部分；然后才是写给人看的，因为下一个人要在不理解你当时处境的情况下修改它。</p>
+        <p>我理解的实践是：命名要表达意图，而不是表达实现；注释要写"为什么"，而不是"做了什么"；抽象要在第三次重复出现时再做，而不是第一次就设计一套框架。</p>
+        <p>最容易被忽略的一点是删除。能删掉的代码比写得漂亮的代码更值得表扬，因为删除意味着你确认了这段逻辑真的没人依赖，这需要比写代码更多的调查工作。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 2470</span><span>评论 88</span><span>收藏 760</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/120983/answer/8912347">一个人维护一个开源项目，怎么坚持下去？</a></h2>
+      <div class="RichText ztext">
+        <p>先把"坚持"这个词从脑子里去掉。靠意志力维持的项目通常活不过两年，能活下来的项目都有一个共同点：维护者从中获得了对自己有用的东西。</p>
+        <p>对我而言，有用的东西是"这个工具我自己每天都在用"。只要我自己还在用，issue 就不会烂在那里，因为烂掉会直接影响我第二天的工作。这个反馈闭环比任何打卡计划都可靠。</p>
+        <p>另外要学会关掉一些东西。关闭无法复现的 issue、拒绝超出范围的功能请求、把文档写清楚以减少重复回答。维护者的时间是最稀缺的资源，把它花在能形成正循环的地方。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 1673</span><span>评论 64</span><span>收藏 512</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/551028/answer/9031122">数据库索引到底该怎么建？</a></h2>
+      <div class="RichText ztext">
+        <p>索引不是越多越好，这句话人人都知道，但真正建索引的时候还是会忍不住给每个查询条件都加一个。判断标准其实很简单：这个索引服务的查询，在线上每分钟跑多少次，扫描的行数从多少降到多少。</p>
+        <p>我一般的顺序是先看慢查询日志，按总耗时排序，而不是按单次耗时。一条偶尔跑一次、耗时三秒的报表查询，优先级远低于一条每秒跑两百次、耗时三十毫秒的列表查询。前者优化了没人感知，后者优化了所有人都能感知。</p>
+        <p>联合索引的列顺序要按等值条件在前、范围条件在后排。这条规则背后的原因是 B+ 树只能沿一个方向做范围扫描：把范围列放在前面，后面的等值列就用不上了。很多人背下了这条规则，却没想过为什么，于是遇到"两个范围条件"时就不知道该怎么办 —— 这种查询通常需要拆成两次查询再在应用层合并。</p>
+        <p>还有一个经常被忽略的点：索引也会让写入变慢。每多一个索引，插入和更新就多一次随机写。所以在写入密集的表上，删掉一个用不上的索引，往往比加一个新索引收益更大。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 6217</span><span>评论 187</span><span>收藏 3890</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/442190/answer/1029384">为什么单元测试写着写着就没人维护了？</a></h2>
+      <div class="RichText ztext">
+        <p>大多数单元测试死掉，不是因为没人写，而是因为写的时候没有想清楚它守护的是什么。一个测试如果只是把实现逐行翻译成断言，那实现一改它就必须改，改两次之后大家就学会了"改实现的时候顺手把测试删掉"。</p>
+        <p>好的测试断言的是行为契约：给定什么输入，对外表现出什么结果。它对内部结构不敏感，所以重构时不需要改。判断方法很直接 —— 你把函数内部换一种写法，测试还过不过？如果必须改测试，那它守的是实现，不是行为。</p>
+        <p>另一个常见问题是测试之间的耦合。共享一个数据库、共享一个全局状态、依赖执行顺序，这些都会让失败信息变得没有意义：一个测试挂了，你不知道是它自己的问题还是前面某个测试留下的脏数据。</p>
+        <p>最后是速度。整套单测跑一次要十分钟，就没人会在提交前跑。慢的根源通常是真实的网络和真实的数据库，这两样在单测里都应该被替换掉。集成测试慢一点没关系，但它应该单独一个命令，而不是混在每次保存都要跑的那一批里。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 4180</span><span>评论 231</span><span>收藏 2740</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/778201/answer/2233445">怎么判断一个技术方案是不是过度设计？</a></h2>
+      <div class="RichText ztext">
+        <p>过度设计的典型症状是：方案里有一半的模块，在被问到"现在哪个需求需要它"时，答案是"以后可能会用"。技术选型最容易犯这个错，因为加一个中间件在评审会上显得很专业，而说"现在不需要"显得很没追求。</p>
+        <p>我的判断标准是看它能不能被删掉。如果一个模块删掉之后，当前所有需求都还能满足，那它现在就不该存在。这条标准很粗暴，但它把"未来可能"这种无法验证的论据排除掉了。</p>
+        <p>还有一类过度设计是抽象层次过高。为了支持三种可能的数据源，先定义一个仓储接口、一个适配器层、一个工厂，结果三种数据源最后只实现了一种。等真的要加第二种时，你会发现当初设计的接口根本不匹配，还是要改 —— 而且因为多了一层，改起来更麻烦。</p>
+        <p>反过来，欠设计也有明显症状：同一个逻辑在五个地方各写一遍，改一个 bug 要改五处。判断分界线不是"代码行数"，而是"同一个知识被表达了几次"。被表达两次可以忍，三次就该抽出来了。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 5920</span><span>评论 143</span><span>收藏 3310</span></div>
+    </section>
+
+    <section class="List-item">
+      <h2 class="ContentItem-title"><a href="/question/330118/answer/5566778">线上日志应该记什么？</a></h2>
+      <div class="RichText ztext">
+        <p>日志的第一原则是"出问题时能回答是谁、在什么时候、对什么、做了什么、结果如何"。这五件事缺一件，排查时就得靠猜。最常见的缺失是"对什么"：日志里写着"更新失败"，但没写更新的是哪个订单。</p>
+        <p>第二原则是不要记无用的东西。把整个请求体和响应体打进日志，看起来信息很全，实际结果是日志量大到没人看，真出事时在海量噪音里捞不到关键行。正确的做法是记标识符和关键字段，需要细节时按标识符去链路追踪里查。</p>
+        <p>第三原则是级别要有意义。如果 error 级别的日志每天有几千条，那它就等于 info。error 应该对应"需要人处理"的事件，warn 对应"系统自己处理了但值得关注"，info 对应"正常但重要的状态变化"。这条约定如果团队不统一，日志分级就完全失去作用。</p>
+        <p>最后是敏感信息。手机号、身份证、token 一律不能明文进日志，这不是"最好做到"，而是合规底线。脱敏要在写日志的那一层做，不能指望下游的采集系统帮你过滤 —— 采集系统通常只负责搬运。</p>
+      </div>
+      <div class="ContentItem-actions"><span>赞同 2864</span><span>评论 97</span><span>收藏 1520</span></div>
+    </section>
+  </main>
+
+  <div class="Modal-wrapper">
+    <div class="Modal">
+      <h3>短信登录</h3>
+      <label>手机号</label>
+      <input type="tel" placeholder="请输入手机号" autocomplete="tel">
+      <label>短信验证码</label>
+      <div class="Modal-row">
+        <input type="text" placeholder="请输入验证码" inputmode="numeric" maxlength="6">
+        <button class="send-code" type="button">获取验证码</button>
+      </div>
+      <div class="Modal-tip">未注册的手机号将自动创建账号。登录即代表同意《用户协议》与《隐私政策》。为保障账号安全，异地登录时可能需要进行安全验证。</div>
+    </div>
+  </div>
+
+  <script>
+    window.__INITIAL_STATE__ = {
+      "user": {"name": "张三", "urlToken": "zhang-san", "isOrg": false, "voteupCount": 2361},
+      "feed": {"paging": {"isEnd": false, "next": "https://www.zhihu.com/api/v4/members/zhang-san/answers?offset=10"}},
+      "login": {"smsEnabled": true, "sendInterval": 60}
+    };
+  </script>
+</body>
+</html>

@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import platform
-from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from argparse import ArgumentParser, BooleanOptionalAction, RawDescriptionHelpFormatter
 from typing import Any, Dict, List, Optional, Tuple
 import os.path as path
 from maigret.utils import extract_usernames, read_input_file
@@ -54,6 +54,7 @@ from .report import (
 )
 from .result import SiteResult
 from .activation import load_activation_cache, save_activation_cache
+from .cn.hook import augment_sites
 from .sites import MaigretDatabase
 from .submit import Submitter
 from .utils import get_dict_ascii_tree
@@ -415,8 +416,79 @@ def setup_arguments_parser(settings: Settings):
         help="Launch the web interface on the specified port "
         "(default: web_interface_port from settings, 5000 out of the box).",
     )
+    # 断点续查（文档 §3.2.4）。默认全关：中文站扫描 5–10 分钟、中途中断是常态，
+    # 但这是新增能力，不该改变老用户"不加参数就没有额外磁盘写入"的既有行为。
+    checkpoint_group = parser.add_argument_group(
+        'Checkpointing',
+        'Save per-site progress while scanning so an interrupted scan can be resumed.',
+    )
+    checkpoint_group.add_argument(
+        "--checkpoint",
+        action="store_true",
+        dest="checkpoint",
+        default=False,
+        help="Save progress after each checked site to "
+        "~/.maigret/checkpoints/<username>-<timestamp>.jsonl. "
+        "The path is printed when the scan starts.",
+    )
+    checkpoint_group.add_argument(
+        "--resume",
+        metavar='PATH',
+        dest="resume",
+        default=None,
+        help="Resume an interrupted scan from a checkpoint file: sites already "
+        "recorded there are not requested again, and their results are merged "
+        "into the report. Implies --checkpoint.",
+    )
     output_group = parser.add_argument_group(
         'Output options', 'Options to change verbosity and view of the console output'
+    )
+    # 调试开关（文档 §6.3）。写站点规则时要填 e_string/m_string，这两个值必须
+    # 逐字出现在响应里；看不到原始响应就只能盲猜，填错的后果是"永远未判定"。
+    output_group.add_argument(
+        "--dump-response",
+        action="store_true",
+        dest="dump_response",
+        default=False,
+        help="Print the full HTTP response for every checked site. "
+        "Use with --site <name> when writing or fixing a site rule.",
+    )
+    output_group.add_argument(
+        "--mask",
+        action="store_true",
+        dest="mask",
+        default=False,
+        help="Mask extracted personal fields (email, phone, name, region) in the "
+        "output. Off by default: this tool does not share data, so masking your "
+        "own report only makes it harder to read. Turn it on before screenshots "
+        "or screen recordings.",
+    )
+    output_group.add_argument(
+        "--cn-summary",
+        action=BooleanOptionalAction,
+        dest="cn_summary",
+        default=True,
+        help="Print the self-check summary after the scan: risk level, cross-site "
+        "identity clusters, and the sites this run could not judge. On by "
+        "default — it is the whole point of this fork. Use --no-cn-summary "
+        "for the bare upstream output.",
+    )
+    output_group.add_argument(
+        "--cn-exclusions",
+        dest="cn_exclusions",
+        default=None,
+        metavar="PATH",
+        help="Local false-positive exclusion table (JSON). Entries matched by it "
+        "are marked in the report, never removed.",
+    )
+    output_group.add_argument(
+        "--cn-exclusions-url",
+        dest="cn_exclusions_url",
+        default=os.environ.get("MAIGRET_CN_EXCLUSIONS_URL") or None,
+        metavar="URL",
+        help="Remote false-positive exclusion table (https only). Falls back to "
+        "the local cache, then to no rules at all; never fails the run. "
+        "Defaults to $MAIGRET_CN_EXCLUSIONS_URL.",
     )
     output_group.add_argument(
         "--print-not-found",
@@ -577,6 +649,79 @@ def setup_arguments_parser(settings: Settings):
     return parser
 
 
+async def load_cn_exclusions(args, logger):
+    """装配排除表：本地 > 远程 > 内置。
+
+    只在确实要用的时候才去碰网络：用户既没给本地表也没给远程地址时，
+    这里返回一个空表（而不是 None），让调用方的分支少一层。
+    **任何失败都降级**——排除表是可选增强，不该让一次自查跑不起来。
+    """
+    from .cn.exclusions import build, load_remote
+
+    remote_rules, remote_warnings = [], []
+    if getattr(args, "cn_exclusions_url", None):
+        remote_rules, remote_warnings = await load_remote(
+            args.cn_exclusions_url, cache_path=None
+        )
+        for warning in remote_warnings:
+            # 用 warning 而不是 debug：远程表决定了"哪些结果会被标成误报"，
+            # 加载失败时用户必须知道这次看到的是本地规则还是空规则。
+            logger.warning("排除表：%s", warning)
+
+    try:
+        table = build(
+            local_path=getattr(args, "cn_exclusions", None),
+            remote_rules=remote_rules,
+            remote_warnings=remote_warnings,
+        )
+    except Exception as exc:
+        # 本地表格式写错是最常见的用户失误，不能因此中断整个扫描。
+        from .cn.exclusions import ExclusionTable
+
+        logger.warning("排除表加载失败（%s），本次不排除任何结果", exc)
+        return ExclusionTable(rules=[], warnings=[f"排除表加载失败：{exc}"])
+
+    return table
+
+
+def print_cn_summary(username: str, results: Dict[str, Any], table=None, logger=None) -> str:
+    """输出单个用户名的自查结论块，返回实际打印的文本（空串表示没打印）。
+
+    返回文本是为了让调用方/测试不必去抓 stdout：这个函数只做渲染和打印，
+    判断"该不该打印"的责任留在外面。
+    """
+    from .cn.hook import MODE_OFF
+    from .cn.hook import mode as cn_verdict_mode
+    from .cn.report import apply_exclusions, build_summary
+
+    logger = logger or logging.getLogger('maigret')
+
+    # `MAIGRET_CN_VERDICT=0` 是整体回退开关，回退就该回到上游行为：
+    # 判定关掉之后 `status.reason` 不再有值（那是本分支的产物），
+    # 汇总会把所有非命中站点统统归到"没有可用规则"——比不输出更误导。
+    if cn_verdict_mode() == MODE_OFF:
+        logger.debug('MAIGRET_CN_VERDICT=0，跳过自查结论')
+        return ""
+
+    if not results:
+        return ""
+
+    try:
+        excluded = apply_exclusions(results, table)
+        summary = build_summary(results, username=username, excluded=excluded, table=table)
+    except Exception as exc:
+        # 汇总层出问题绝不能吞掉已经跑完的扫描结果：报告文件仍然照常写盘。
+        logger.debug("自查结论生成失败：%s", exc, exc_info=True)
+        return ""
+
+    if not summary:
+        return ""
+
+    print()
+    print(summary)
+    return summary
+
+
 def save_db_safely(db: MaigretDatabase, db_file: str, logger) -> bool:
     """Persist the sites database, tolerating a read-only installation.
 
@@ -609,8 +754,18 @@ async def main():
     settings_loaded, err = settings.load()
 
     if not settings_loaded:
-        logger.error(err)
-        sys.exit(3)
+        # 只有"文件存在但读不动"才该退出：那说明用户明确写了一份配置，
+        # 而我们看不懂它，继续跑等于拿默认值静默覆盖用户的意图。
+        #
+        # "一份配置文件都没有"不是错误：`settings.json` 在 .gitignore 里，
+        # 全新 clone 的仓库里本来就没有它。`Settings.__init__` 已经铺好一套
+        # 可用的默认值（见 settings.DEFAULT_SETTINGS），此时应当继续。
+        # 原来这里一律 sys.exit(3)，导致源码部署的用户第一条命令就是
+        # "None of the default settings files found" 加退出码 3。
+        if isinstance(err, Exception):
+            logger.error(err)
+            sys.exit(3)
+        logger.debug(err)
 
     arg_parser = setup_arguments_parser(settings)
     args = arg_parser.parse_args()
@@ -744,6 +899,12 @@ async def main():
         else:
             raise
 
+    # 只存在于 cn overlay 的站点（小红书、B 站搜索…）先注册进库，
+    # 否则 `--site "Bilibili (搜索)"` 会在库里找不到，直接"没有要查的站点"。
+    from .cn.hook import register_overlay_sites
+
+    register_overlay_sites(db)
+
     activation_baseline = load_activation_cache(db, logger)
 
     get_top_sites_for_id = lambda x: db.ranked_sites_dict(
@@ -756,6 +917,22 @@ async def main():
     )
 
     site_data = get_top_sites_for_id(args.id_type)
+
+    # cn overlay：把人工策展的中文站强制并入本次扫描（文档 §5.2 force_include）。
+    # 上游的 top 截断按 alexaRank 排序，而 Alexa 2022 年已停服、排序数据失效，
+    # 中文站大多没有 alexaRank，永远进不了默认范围 —— 这是"默认扫描只有 5 个
+    # 中国站"的根因。force_include 的语义就是不参与排序、直接进。
+    #
+    # 用户用 --site 显式点名站点时不并入：那是"我只想查这几个站"的明确意图，
+    # 再塞 19 个进去等于把 --site 当摆设。
+    if not args.site_list:
+        site_data = augment_sites(
+            site_data,
+            db,
+            args.id_type,
+            tags=args.tags,
+            excluded_tags=args.exclude_tags,
+        )
 
     if args.new_site_to_submit:
         submitter = Submitter(db=db, logger=logger, settings=settings, args=args)
@@ -928,6 +1105,14 @@ async def main():
 
     _signal.signal(_signal.SIGINT, _on_sigint)
 
+    # 排除表只在整轮运行里装配一次，不放进循环：
+    # 它是"规则"而不是"本次查询的状态"。每查一个用户名重新拉一遍远程表
+    # 既慢，也会让同一批结果套用不同版本的规则——用户看到的两份报告
+    # 会互相矛盾，而矛盾的那份看起来就像"漏查了"。
+    cn_exclusion_table = None
+    if args.cn_summary:
+        cn_exclusion_table = await load_cn_exclusions(args, logger)
+
     while usernames:
         username, id_type = list(usernames.items())[0]
         del usernames[username]
@@ -992,6 +1177,12 @@ async def main():
             keywords=getattr(args, 'keywords', []),
             dns_resolver=args.dns_resolver,
             output_container=partial_results,
+            # 断点续查：两个开关直接透传，路径在 checking 里生成（那里才知道
+            # 实际查询的用户名，permutation / --input-file 之后可能与 args 不同）
+            checkpoint=args.checkpoint,
+            resume=args.resume,
+            dump_response=args.dump_response,
+            mask=args.mask,
         ))
         _current_search_task[0] = search_task
         try:
@@ -1016,6 +1207,10 @@ async def main():
                 f'Press Ctrl+C again to exit without a report.',
                 symbol='!',
             )
+            # 中断后仍然给结论：用户按 Ctrl+C 是因为等不及，不是不要结果。
+            # 而且此时盲区信息恰恰最有用——它说明了为什么结果看起来这么少。
+            if args.cn_summary and not args.ai:
+                print_cn_summary(username, results, cn_exclusion_table, logger=logger)
             break
         finally:
             _current_search_task[0] = None
@@ -1031,6 +1226,12 @@ async def main():
             results = sort_report_by_data_points(results)
 
         general_results.append((username, id_type, results))
+
+        # 自查结论：放在这里而不是最后统一打印，是因为它按用户名组织，
+        # 多个用户名时应该紧跟着各自的扫描结果出现。`--ai` 模式下不打印，
+        # 与下面的短文本报告保持一致（避免同一份结论出现两次）。
+        if args.cn_summary and not args.ai:
+            print_cn_summary(username, results, cn_exclusion_table, logger=logger)
 
         if recursive_search_enabled:
             extracted_ids = extract_ids_from_results(results, db)

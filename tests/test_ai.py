@@ -4,10 +4,22 @@ import io
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from maigret.ai import _stream_response, _write_encodable
+
+# 子进程探针的导入环境：把仓库根塞进 PYTHONPATH。
+# 探针在 tmp_path 里跑，`sys.path[0]` 是那个临时目录，所以 `import maigret`
+# 只有在包被 pip 安装过时才成功。CI 是 `pip install -e .`，本地直接跑 pytest
+# 往往没装——那种失败来自环境，不是代码。
+def _probe_env(base=None):
+    env = dict(base or os.environ)
+    root = str(Path(__file__).resolve().parent.parent)
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = root + ((os.pathsep + existing) if existing else "")
+    return env
 
 
 def _run_probe(tmp_path, name, lines, encoding):
@@ -19,7 +31,7 @@ def _run_probe(tmp_path, name, lines, encoding):
     probe = tmp_path / name
     probe.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    env = dict(os.environ)
+    env = _probe_env()
     env["PYTHONIOENCODING"] = encoding
     return subprocess.run(
         [sys.executable, str(probe)],

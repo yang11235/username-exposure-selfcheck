@@ -28,6 +28,12 @@ from socid_extractor import extract, mutate_url  # type: ignore[import-not-found
 # Local imports
 from . import errors
 from .activation import ParsingActivator, import_aiohttp_cookies
+from .cn.checkpoint import ScanCheckpoint, checkpoint_path
+from .cn.executors.avatar import attach_avatar_evidence
+from .cn.executors.browser import fetch_site_response, reset_escalations
+from .cn.extract import extract_evidence, summarize
+from .cn.hook import apply_cn_verdict, spec_for
+from .cn.verdict import Reason
 from .error_detection import detect_error_page
 from .errors import CheckError
 from .executors import AsyncioQueueGeneratorExecutor
@@ -119,6 +125,11 @@ def normalize_proxy_scheme(proxy: Optional[str], transport: str) -> Optional[str
 
 SUPPORTED_IDS = (
     "username",
+    # 站内数字 ID。中文站里掘金（user_id）、网易云（uid）的个人主页地址
+    # 只接受数字 ID，昵称拼不出来。上游没有这个类型，本分支补上——
+    # 否则 sites_cn.json 里声明了 id_type=user_id 的规则永远查不到：
+    # --id-type 的 choices 里没有它，CLI 会直接拒绝。
+    "user_id",
     "yandex_public_id",
     "gaia_id",
     "vk_id",
@@ -211,6 +222,9 @@ class SimpleAiohttpChecker(CheckerBase):
         # DNS server on Windows / VPN / corporate networks, producing
         # "Could not contact DNS servers" for every site.
         self.dns_resolver = kwargs.get('dns_resolver', 'async')
+        # 请求预热地址：先访问一次，让服务端下发 Cookie（B 站搜索接口不带
+        # buvid3 会直接 412）。由 cn overlay 的 bootstrap_url 驱动，为空则跳过。
+        self.bootstrap_url = kwargs.get('bootstrap_url') or None
 
     def prepare(self, url, headers=None, allow_redirects=True, timeout=0, method='get', payload=None, encoding=None):
         self.url = url
@@ -224,6 +238,35 @@ class SimpleAiohttpChecker(CheckerBase):
 
     async def close(self):
         pass
+
+    async def _warm_up(self, session) -> None:
+        """先访问一次 bootstrap_url，把服务端下发的 Cookie 收进会话。
+
+        失败一律吞掉：预热只影响成功率，不影响结论。预热失败时主请求照常发，
+        最坏结果是 412/403 —— 判定层会把那种情况判成 UNKNOWN，而不是"不存在"。
+
+        必须在**同一个 session** 里做，否则 cookie jar 不同，等于没预热。
+        """
+        if not self.bootstrap_url:
+            return
+        timeout = min(self.timeout or 10, 10)
+        # 必须沿用主请求的 headers（尤其 User-Agent）：站点下发的 Cookie 往往
+        # 和签发时的 UA 绑定，预热用一个 UA、主请求换另一个，等于白预热——
+        # B 站就是这么回 412 的。
+        headers = dict(self.headers or {})
+        headers.pop('Connection', None)
+        try:
+            await self._make_request(
+                session,
+                self.bootstrap_url,
+                headers,
+                True,
+                timeout,
+                'get',
+                self.logger,
+            )
+        except Exception as exc:  # noqa: BLE001 — 预热失败不是错误
+            self.logger.debug("预热 %s 失败（忽略）：%s", self.bootstrap_url, exc)
 
     async def _make_request(
         self, session, url, headers, allow_redirects, timeout, method, logger, payload=None
@@ -353,6 +396,8 @@ class SimpleAiohttpChecker(CheckerBase):
             trust_env=True,
             cookie_jar=self.cookie_jar if self.cookie_jar else None,
         ) as session:
+            await self._warm_up(session)
+
             html_text, status_code, error = await self._make_request(
                 session,
                 self.url,
@@ -595,7 +640,15 @@ class CloudflareWebgateChecker(CheckerBase):
             else "start the local proxy container"
         )
         all_unreachable = bool(attempts) and all(
-            a.endswith(":Webgate unreachable") for a in attempts
+            # "没连上"和"连上了但一直不说话"是同一件事的两种表现，用户要做的
+            # 动作也一样（把 solver 起起来）。按操作系统分开对待会让提示在
+            # Windows 上消失：那边连一个没人监听的端口不是立刻 RST，而是等到
+            # 超时，于是每次都是 "Webgate timeout"，用户看不到任何可执行的建议。
+            #
+            # 真正的"solver 活着但解题失败"不在这里：那种情况 FlareSolverr
+            # 会回一个 JSON 错误（type 是 "Webgate"），走到下面的通用分支。
+            a.endswith(":Webgate unreachable") or a.endswith(":Webgate timeout")
+            for a in attempts
         )
         if all_unreachable:
             desc = (
@@ -752,6 +805,31 @@ def debug_response_logging(url, html_text, status_code, check_error):
             f.write(f"code: {status}\nresponse: {str(html_text)}\n")
 
 
+def dump_response(url, html_text, status_code, check_error, site_name=""):
+    """--dump-response：把完整响应打到终端（文档 §6.3）。
+
+    为什么这个开关是必需的：写站点规则时要填 `e_string`/`m_string`，这两个值
+    必须**逐字**出现在响应里。没有原始响应，填规则就是盲猜，填错的结果是
+    "永远 STRUCTURE_CHANGED"——用户看到的是"未判定"，而排查成本极高。
+
+    为什么不复用 debug_response_logging：那个写 `debug.log`（当前目录），
+    多站点扫描时几百 KB 混在一起没法看；而且它只在 `-vv` 下触发，
+    用户为了看一眼响应被迫开全量调试日志，噪音淹没信息。
+    这里直接打终端，配合 `--site 某站` 单站使用，一次看一个。
+    """
+    head = f"[{site_name}] " if site_name else ""
+    print(f"\n{'=' * 72}")
+    print(f"{head}URL    : {url}")
+    print(f"STATUS : {status_code if status_code is not None else 'No response'}")
+    if check_error:
+        print(f"ERROR  : {check_error}")
+    body = html_text or ""
+    print(f"LENGTH : {len(body)} 字符")
+    print("-" * 72)
+    print(body if body else "<empty body>")
+    print("=" * 72)
+
+
 def process_site_result(
     response, query_notify, logger, results_info: SiteResult, site: MaigretSite
 ):
@@ -784,6 +862,9 @@ def process_site_result(
 
     if logger.level == logging.DEBUG:
         debug_response_logging(url, html_text, status_code, check_error)
+
+    if results_info.get("dump_response"):
+        dump_response(url, html_text, status_code, check_error, site.name)
 
     # additional check for errors
     if status_code and not check_error:
@@ -901,9 +982,27 @@ def process_site_result(
             f"Unknown check type '{check_type}' for " f"site '{site.name}'"
         )
 
+    # cn overlay：四字段判定接管（文档 §5.3）。默认只接管人工策展的中文站，
+    # 用 MAIGRET_CN_VERDICT=0 可整体回退到上面的上游逻辑。
+    # 必须放在 extract_ids_data 之前：结论若从 CLAIMED 变成 UNKNOWN，
+    # 就不能再把这个未确认的页面当成已确认账号去抽关联信息。
+    result = apply_cn_verdict(
+        result, site, username, html_text, status_code, check_error, logger, results_info
+    )
+
     extracted_ids_data = {}
 
-    if is_parsing_enabled and result.status == MaigretCheckStatus.CLAIMED:
+    # 站内搜索站点**不做** ID 抽取：命中的证据是"搜索结果里有个同名句柄"，
+    # 而手上这一页是搜索结果页——上面挂着的是**别人**的主页链接和昵称。
+    # 在搜索页上抽 ids，等于把别人的账号信息记到这个用户名头上，
+    # 还会顺带污染递归搜索的输入。要抽也得先拿到那个主页，见 docs/cn-rules.md。
+    _is_search_site = getattr(spec_for(site), "executor", "") == "search"
+
+    if (
+        is_parsing_enabled
+        and result.status == MaigretCheckStatus.CLAIMED
+        and not _is_search_site
+    ):
         extracted_ids_data = extract_ids_data(html_text, logger, site)
         if extracted_ids_data:
             new_usernames = parse_usernames(extracted_ids_data, logger)
@@ -911,6 +1010,50 @@ def process_site_result(
                 results_info, extracted_ids_data, new_usernames
             )
             result.ids_data = extracted_ids_data
+
+    # cn 证据抽取（文档 §5.6）：只抽站点自己在 `extract` 里声明的字段。
+    #
+    # 只对 CLAIMED 做，这是硬要求：对未确认的页面抽字段，等于把别人的信息
+    # 记到这个用户名头上。判定层刚把"被拦截/登录墙"降级成 UNKNOWN 的页面，
+    # 绝不能在这里又被当成真人主页来读。
+    if result.status == MaigretCheckStatus.CLAIMED and not _is_search_site:
+        cn_fields = _cn_extract_fields(site)
+        if cn_fields:
+            # 抽取失败不能带走这条站点结果。上面那条 CLAIMED 结论是判定层
+            # 花了一次请求换来的，而抽取只是锦上添花——让一个站点的抽取 bug
+            # 把"这个账号存在"这个事实一起吞掉，等于用装饰件的故障毁掉主体。
+            # 头像那一步（下面的 attach_avatar_evidence）已经是这个处理方式，
+            # 这里保持一致。
+            try:
+                evidence = extract_evidence(
+                    html_text,
+                    cn_fields,
+                    base_url=results_info.get("url_user") or site.url_main or "",
+                    anchor=username,
+                    site_name=site.name,
+                )
+            except Exception as exc:
+                logger.warning("站点 %s 证据抽取失败：%s", site.name, exc)
+                evidence = []
+            if evidence:
+                results_info["cn_evidence"] = summarize(
+                    evidence, masked=bool(results_info.get("mask"))
+                )
+                # 同时并入 ids_data。
+                #
+                # 为什么两处都要写：`cn_evidence` 只喂命令行报告的"证据明细"，
+                # 而 Web 结果页的画像卡片（profile_card.build_profile）和
+                # "发现账号"实时流读的都是 `ids_data`。只写前者的话，会出现
+                # 命令行里明明有「性别 女」、网页上却一片空白——同一个数据
+                # 两个入口两种结果，用户只会认为工具坏了。
+                #
+                # 用 setdefault 而不是直接赋值：上游 HTML 抽取器已经抽到的
+                # 字段不动。两边都有值时，保留先到的那个，避免同一字段
+                # 在两个来源之间反复横跳。
+                merged = dict(result.ids_data or {})
+                for item in evidence:
+                    merged.setdefault(item.field, item.value)
+                result.ids_data = merged
 
     # Save status of request
     results_info["status"] = result
@@ -944,6 +1087,11 @@ def make_site_result(
     results_site["username"] = username
     results_site["keywords"] = kwargs.get('keywords', [])
     results_site["parsing_enabled"] = options["parsing"]
+    # --dump-response：写站点规则时必需，否则只能靠猜 e_string
+    results_site["dump_response"] = bool(options.get("dump_response"))
+    # 脱敏开关随结果走，因为抽取发生在 process_site_result 里，
+    # 那个函数拿不到 options（只有 results_info）。
+    results_site["mask"] = bool(options.get("mask"))
     results_site["url_main"] = site.url_main
     results_site["cookies"] = (
         options.get("cookie_jar")
@@ -999,6 +1147,15 @@ def make_site_result(
         )
     else:
         checker = make_protocol_checker(options, site.protocol)
+
+    # 请求预热：规则在 cn overlay 里用 bootstrap_url 声明"先访问这里拿 Cookie"。
+    # 只对支持它的 checker 生效（SimpleAiohttpChecker 读这个属性），
+    # 其它 checker 上挂一个没人读的属性，代价为零。
+    if isinstance(checker, CheckerBase):
+        cn_spec = spec_for(site)
+        bootstrap = getattr(cn_spec, "bootstrap_url", "") if cn_spec else ""
+        if bootstrap:
+            checker.bootstrap_url = bootstrap
 
     if isinstance(checker, CheckerMock):
         protocol = site.protocol or "protocol"
@@ -1132,7 +1289,10 @@ async def check_site_for_username(
         print(f"error, no checker for {site.name}")
         return site.name, default_result
 
-    response = await checker.check()
+    # 执行器路由：`executor: browser` 的站点走 CDP，被风控的站点自动升级重试。
+    # 收口在这里而不是 checker 内部：浏览器是异步的，而 checker 是同步 HTTP 客户端，
+    # 硬塞进去会让两条完全不同的失败语义混在一起。
+    response = await fetch_site_response(site, default_result, checker, options, logger)
     html_text = response[0] if response and response[0] else ""
 
     # Retry once after token-style activation (e.g. Twitter guest token refresh).
@@ -1178,6 +1338,30 @@ async def check_site_for_username(
         response, query_notify, logger, default_result, site
     )
 
+    # 头像指纹（文档 §5.5 里 ROI 最高的一条身份信号）。
+    #
+    # 放在这里而不是 process_site_result 里，是因为那个函数是同步的，
+    # 而抓头像必须 await。也因为它需要 html_text——process_site_result
+    # 不保存原始响应（response_text 那行是注释掉的），拿不到页面。
+    #
+    # 只有站点显式声明了 avatar 才会真的发这次请求，见 attach_avatar_evidence。
+    if (
+        response_result.get('status')
+        and response_result['status'].status == MaigretCheckStatus.CLAIMED
+    ):
+        try:
+            await attach_avatar_evidence(
+                response_result,
+                _cn_extract_fields(site),
+                html_text,
+                base_url=response_result.get('url_user') or site.url_main or '',
+                masked=bool(response_result.get('mask')),
+                timeout=min(float(options.get('timeout') or 10), 15.0),
+            )
+        except Exception as exc:
+            # 头像只是锦上添花，任何失败都不该影响这次扫描的结论。
+            logger.debug("站点 %s 头像指纹计算失败：%s", site.name, exc)
+
     if (
         options.get('enrich')
         and response_result.get('status')
@@ -1217,6 +1401,104 @@ def get_failed_sites(results: Dict[str, SiteResult]) -> List[str]:
     return sites
 
 
+def restore_checkpoint_result(
+    username: str, site: MaigretSite, record: Dict[str, Any]
+) -> SiteResult:
+    """把 checkpoint 的一行还原成报告层能直接消费的 SiteResult。
+
+    为什么必须还原而不是"跳过就行"：续跑的目的是产出**一份完整的报告**。
+    如果只是不重复请求，报告里就只剩后半段扫描到的站点，用户看到"扫了 300 个
+    站，报告只有 120 个"，还得手动拼两次结果 —— 那等于没续。所以已完成的
+    站点要从 checkpoint 复活进 all_results。
+
+    还原出的条目刻意**不含 response_text / future / checker**：这些字段只有
+    真实请求才有，报告层也不用（`generate_report_context` 只读 status、
+    url_user、ids_*）。伪造它们反而会让下游误以为页面内容还在手里。
+    """
+    raw_status = record.get('status')
+    try:
+        status = MaigretCheckStatus(raw_status)
+    except (ValueError, TypeError):
+        # 枚举值不认识（手工改过 / 未来新增状态）→ 保守地当作未判定，
+        # 不猜成 AVAILABLE：把未知说成"不存在"是这类工具最危险的错误方向。
+        status = MaigretCheckStatus.UNKNOWN
+
+    reason = None
+    raw_reason = record.get('reason')
+    if raw_reason:
+        try:
+            reason = Reason(raw_reason)
+        except ValueError:
+            reason = None
+
+    url = record.get('url') or ''
+    check_result = MaigretCheckResult(
+        record.get('username') or username,
+        site.name,
+        url,
+        status,
+        reason=reason,
+        confidence=record.get('confidence'),
+        # 扩展字段（uid/创建时间/地区/公司/头像）也要复活，否则续跑出来的
+        # 报告只有"命中"，没有"命中了什么"——关联图谱和头像会整片空掉。
+        ids_data=record.get('ids_data') or None,
+    )
+    # rate_limited 是独立布尔，报告里"被限流"和"不存在"必须能分开
+    check_result.rate_limited = bool(raw_reason == Reason.RATE_LIMITED.value)
+
+    return {
+        'site': site,
+        'username': username,
+        'url_main': getattr(site, 'url_main', '') or '',
+        'url_user': url,
+        'url_probe': url,
+        'http_status': record.get('http_status') if record.get('http_status') is not None else '',
+        'status': check_result,
+        'is_similar': False,
+        'parsing_enabled': False,
+        'cookies': None,
+        # 标记来源，便于诊断"这条是续跑带进来的还是这次真跑出来的"
+        'from_checkpoint': True,
+    }
+
+
+def load_cookie_jar(cookies, logger):
+    """准备 cookie jar；来源不可用时返回 None 而不是抛异常。
+
+    为什么不能让它抛：这行在**发出第一个请求之前**。用户勾了"使用 cookies"
+    但文件不存在（首次使用、被清理、路径写错）时，抛出去等于整次检索一个站点
+    都没查就死掉，而 Web 端只会显示"检索失败：No such file or directory"——
+    用户看不出问题出在 cookies 上，更不知道取消勾选就能跑。
+
+    cookies 只是提高成功率，缺了就该降级继续。
+
+    两种入参：
+        str           cookies.txt 路径（Netscape 格式），从磁盘读
+        CookieJar     已经装好的 jar，直接透传
+
+    为什么要支持透传：从本机浏览器取的 Cookie 是**内存直用**的（见
+    `cn/browser_cookies.py`），落盘就违背了"不落盘"这条约束。但下游
+    `MairetChecker` 只认 CookieJar，所以这里做一次类型分流，
+    而不是逼调用方先写一个临时文件。
+    """
+    if hasattr(cookies, "filter_cookies"):
+        # 必须在 `if not cookies` **之前**判断：空的 CookieJar 是 falsy
+        # （__len__ 为 0），排在后面会被当成"没传"直接丢掉。虽然空 jar
+        # 本来也发不出 Cookie，但类型分流写在前面才不会随 __len__ 的实现变化。
+        logger.debug("使用调用方传入的 cookie jar（内存直用，未落盘）")
+        return cookies
+    if not cookies:
+        return None
+    if not os.path.exists(cookies):
+        logger.warning(
+            "Cookie 文件不存在，本次不使用 cookies：%s（在设置里取消勾选可消除此提示）",
+            cookies,
+        )
+        return None
+    logger.debug(f"Using cookies jar file {cookies}")
+    return import_aiohttp_cookies(cookies)
+
+
 async def maigret(
     username: str,
     site_dict: Dict[str, MaigretSite],
@@ -1240,6 +1522,9 @@ async def maigret(
     keywords=None,
     dns_resolver: str = 'async',
     output_container: Optional[Dict[str, SiteResult]] = None,
+    checkpoint: bool = False,
+    resume: Optional[str] = None,
+    dump_response: bool = False,
     *args,
     **kwargs,
 ) -> Dict[str, SiteResult]:
@@ -1287,10 +1572,12 @@ async def maigret(
 
     query_notify.start(username, id_type)
 
-    cookie_jar = None
-    if cookies:
-        logger.debug(f"Using cookies jar file {cookies}")
-        cookie_jar = import_aiohttp_cookies(cookies)
+    # 每次扫描重置浏览器升级预算。
+    # 预算挂在模块级（跨站点累计），所以必须在每次扫描开始时清零，
+    # 否则同一个进程里第二次扫描会一开始就没额度（web 界面、脚本批量调用都会踩）。
+    reset_escalations()
+
+    cookie_jar = load_cookie_jar(cookies, logger)
 
     def clearweb_checker():
         return SimpleAiohttpChecker(
@@ -1345,6 +1632,10 @@ async def maigret(
     options["forced"] = forced
     options["cloudflare_bypass"] = cloudflare_bypass
     options["proxy"] = proxy
+    options["dump_response"] = dump_response
+    # 脱敏开关只影响"写进结果里的证据值"，不影响判定和抽取本身。
+    # 默认关闭（文档 §5.6）：本项目不做分享，自己看自己的数据没必要遮。
+    options["mask"] = bool(kwargs.get("mask", False))
 
     # results from analysis of all sites
     # When the caller wants to read partial results after a Ctrl+C
@@ -1355,6 +1646,55 @@ async def maigret(
     )
 
     sites = list(site_dict.keys())
+
+    # ---- 断点续查（文档 §3.2.4）------------------------------------------
+    # 默认 checkpoint=False / resume=None，这一段完全不执行，老行为零变化。
+    # resume 隐含启用 checkpoint：续跑本来就是往同一个文件里继续写，
+    # 否则这次续出来的后半段在下次中断时又丢了。
+    ckpt: Optional[ScanCheckpoint] = None
+    completed: Dict[str, Dict[str, Any]] = {}
+    if resume:
+        ckpt, completed = ScanCheckpoint.open_for_resume(resume)
+        query_notify.warning(
+            f'Resuming from checkpoint {resume}: {len(completed)} site(s) already done'
+        )
+    elif checkpoint:
+        ckpt = ScanCheckpoint(checkpoint_path(None, username))
+        # 这行必须打在扫描**开始前**：进程被 SIGKILL 时不会有任何收尾输出，
+        # 用户得能从屏幕上抄下路径，才能用 --resume 接着跑。
+        query_notify.warning(
+            f'Checkpoint enabled: progress is saved to {ckpt.path} '
+            f'(resume with --resume "{ckpt.path}")'
+        )
+
+    if completed:
+        restored = 0
+        for sitename in list(sites):
+            record = completed.get(sitename)
+            if record is None:
+                continue
+            # 同一个 checkpoint 文件被拿去续另一个用户名时必须拒绝：
+            # 记录里的 URL / 结论是上一个用户名的，混进报告就是错误数据。
+            record_username = record.get('username')
+            if record_username and record_username != username:
+                logger.warning(
+                    "checkpoint 中的站点 %s 属于用户名 %r，本次查询 %r，忽略该记录",
+                    sitename, record_username, username,
+                )
+                continue
+            site = site_dict.get(sitename)
+            if site is None:
+                continue
+            # 已完成站点直接复活进结果集，且从待扫列表剔除（tasks_dict 只装
+            # sites 里的站点），这样既不发重复请求，报告又是完整的。
+            all_results[sitename] = restore_checkpoint_result(username, site, record)
+            sites.remove(sitename)
+            restored += 1
+        if restored:
+            query_notify.warning(
+                f'Skipped {restored} site(s) already checked in the checkpoint; '
+                f'{len(sites)} site(s) left to scan'
+            )
 
     attempts = retries + 1
     while attempts:
@@ -1406,11 +1746,20 @@ async def maigret(
                     # the executor yields, so this is equivalent to the
                     # post-loop update but visible to the caller mid-flight.
                     all_results.update([result])
+                    # 断点续查：每完成一站立刻落盘（append + flush + fsync）。
+                    # 位置就在 all_results.update 之后 —— 内存和磁盘在这一刻
+                    # 记录的是同一件事，不会出现"报告里有、checkpoint 里没有"。
+                    # 写在循环内而不是循环后，是因为要救的正是"循环没跑完"。
+                    if ckpt is not None:
+                        ckpt.record(result[0], result[1])
                     progress()
         except asyncio.CancelledError:
             # Re-raise so the caller's `except CancelledError` runs. The
             # partial `all_results` is already visible to the caller via the
             # output_container kwarg.
+            # 数据已经逐行 fsync 过，这里关文件只是别把 fd 泄漏到报告生成阶段。
+            if ckpt is not None:
+                ckpt.close()
             query_notify.finish()
             raise
 
@@ -1430,6 +1779,10 @@ async def maigret(
 
     # notify caller that all queries are finished
     query_notify.finish()
+
+    if ckpt is not None:
+        ckpt.close()
+        logger.debug("checkpoint 已关闭：%s（本次写入 %d 条）", ckpt.path, ckpt.written)
 
     if is_enrich_enabled:
         query_notify.enrich(f"{options.get('enrich_requests', 0)} extra requests performed")
@@ -1761,6 +2114,25 @@ async def self_check(
         'results': all_results,
         'total_issues': total_issues,
     }
+
+
+def _cn_extract_fields(site) -> list:
+    """这个站点声明了要抽哪些证据字段（来自 cn 策展数据）。
+
+    返回空列表的含义是"这个站不值得抽"，**不是**"抽全部"。
+    上游 data.json 里没有"抽取字段"这个概念，所以只认策展数据；
+    这也意味着绝大多数站点不会产生任何抽取请求。
+
+    任何异常都吞掉返回空列表：抽取是锦上添花，不该因为一条策展数据写坏
+    就让整次扫描失败。
+    """
+    try:
+        spec = spec_for(site)
+    except Exception:
+        return []
+    if spec is None:
+        return []
+    return list(spec.extract or [])
 
 
 def extract_ids_data(html_text, logger, site) -> Dict:

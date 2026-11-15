@@ -72,7 +72,10 @@ class MaigretCheckResult:
         error=None,
         tags=[],
         keywords=None,
-        keyword_match_status=None
+        keyword_match_status=None,
+        reason=None,
+        confidence=None,
+        rate_limited=False,
     ):
         """
         Keyword Arguments:
@@ -116,9 +119,19 @@ class MaigretCheckResult:
         self.error = error
         self.keywords = keywords or []
         self.keyword_match_status = keyword_match_status or KeywordMatchStatus.NO_KEYWORDS
+        # 结构化的"为什么没判定成功"（cn.verdict.Reason）。
+        # 上游原本只有 context（自由字符串，如 str(check_error)），报告和聚类
+        # 都没法用；改成枚举后，"12 个站点需要登录才能判定"这类汇总才能自动生成。
+        self.reason = reason
+        # 置信度（cn.scoring 算出）。上游的结论是个断言，用户看不出有多硬；
+        # 有了分数才能区分"确认存在"和"仅凭状态码推测存在"。
+        self.confidence = confidence
+        # 限流是独立布尔而不是 status 的一个变体（抄 holehe）：
+        # "被限流"和"不存在"必须能分开，否则用户会以为自己没注册某个站。
+        self.rate_limited = rate_limited
 
     def json(self):
-        return {
+        data = {
             "username": self.username,
             "site_name": self.site_name,
             "url": self.site_url_user,
@@ -128,6 +141,22 @@ class MaigretCheckResult:
             "keywords": self.keywords,
             "keyword_match_status": str(self.keyword_match_status)
         }
+        # 这三个字段上游一直丢弃，导致"为什么没判定出来"落盘即失：
+        # 报告里只有 Unknown，用户看不到是被限流、被墙、还是规则坏了。
+        # 只在有值时输出，避免给 95% 的正常结果塞一堆 null。
+        if self.reason is not None:
+            # Reason 是 str 枚举，.value 才是 "blocked" 这种稳定标识；
+            # 直接 str() 在 3.11+ 会得到 "Reason.BLOCKED"，不适合落盘。
+            data["reason"] = getattr(self.reason, "value", str(self.reason))
+        if self.context is not None:
+            data["context"] = self.context
+        if self.error is not None:
+            data["error"] = str(self.error)
+        if self.confidence is not None:
+            data["confidence"] = self.confidence
+        if self.rate_limited:
+            data["rate_limited"] = True
+        return data
 
     def is_found(self):
         return self.status == MaigretCheckStatus.CLAIMED

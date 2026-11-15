@@ -171,6 +171,18 @@ def get_random_user_agent():
 
 
 def get_match_ratio(base_strs: list):
+    """返回一个"和已知串有多像"的打分函数，用于给候选特征串排序。
+
+    没有参照串时返回**恒定 0 分**，而不是抛异常：调用方（submit.py）拿它当
+    `sorted(..., key=...)` 的键，键恒为 0 就等于保持原顺序——这正是"还没有
+    任何先验知识"该有的行为。原来这里直接 `max([])`，用户在添加站点时看到的
+    是一句 `ValueError: max() iterable argument is empty`，既不知道是哪一步
+    炸的，也不知道该补什么。
+    """
+    base_strs = list(base_strs or [])
+    if not base_strs:
+        return lambda s: 0.0
+
     def get_match_inner(s: str):
         return round(
             max(
