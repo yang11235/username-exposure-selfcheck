@@ -60,7 +60,7 @@
 
 ```bash
 git clone <本仓库地址>
-cd maigret
+cd username-exposure-selfcheck
 python -m venv venv
 # Windows
 venv\Scripts\activate
