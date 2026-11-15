@@ -8,7 +8,7 @@ version = "0.6.6"
 description = "用户名暴露自检：查清一个用户名在各平台留下了什么（maigret 中文增强版）"
 authors = [
     "Soxoj <soxoj@protonmail.com>",
-    "yang11235 <121405831+yang11235@users.noreply.github.com>",
+    "yang11235 <155621669+yang11235@users.noreply.github.com>",
 ]
 readme = "README.md"
 license = "MIT License"
