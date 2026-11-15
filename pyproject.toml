@@ -5,13 +5,15 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "maigret"
 version = "0.6.6"
-description = "🕵️‍♂️ Collect a dossier on a person by username from thousands of sites."
-authors = ["Soxoj <soxoj@protonmail.com>"]
+description = "用户名暴露自检：查清一个用户名在各平台留下了什么（maigret 中文增强版）"
+authors = [
+    "Soxoj <soxoj@protonmail.com>",
+    "yang11235 <121405831+yang11235@users.noreply.github.com>",
+]
 readme = "README.md"
 license = "MIT License"
-homepage = "https://pypi.org/project/maigret"
-documentation = "https://maigret.readthedocs.io"
-repository = "https://github.com/soxoj/maigret"
+homepage = "https://github.com/yang11235/username-exposure-selfcheck"
+repository = "https://github.com/yang11235/username-exposure-selfcheck"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
@@ -23,12 +25,11 @@ classifiers = [
     "Intended Audience :: Information Technology",
     "Operating System :: OS Independent",
     "License :: OSI Approved :: MIT License",
-    "Natural Language :: English"
+    "Natural Language :: Chinese (Simplified)",
 ]
 
 [tool.poetry.urls]
-"Bug Tracker" = "https://github.com/soxoj/maigret/issues"
-"Funding" = "https://www.patreon.com/soxoj"
+"Bug Tracker" = "https://github.com/yang11235/username-exposure-selfcheck/issues"
 
 [tool.poetry.dependencies]
 # poetry install

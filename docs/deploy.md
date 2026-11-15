@@ -3,7 +3,7 @@
 > 面向本仓库（基于 [soxoj/maigret](https://github.com/soxoj/maigret) 的中文增强版）。
 >
 > 文中命令写作 `maigret`，等价于 `python -m maigret`。注意 `pip install maigret` 装到的是**上游原版**，
-> 不含中文站判定与自查结论——要用本仓库的改动请从源码安装（见 §7）。
+> 不含中文站判定与自查结论——要用本仓库的改动请从源码安装（见 §6）。
 >
 > 实测环境：Windows 11 + Python 3.13。标注「实测」的结论来自实机跑通；标注「文档」的来自官方文档，未实机复现。
 > 上游文档：https://maigret.readthedocs.io
@@ -41,11 +41,9 @@ maigret someusername
 | 方式 | 适用场景 | 依赖 | 实测状态 |
 |---|---|---|---|
 | pip + venv | 本地常驻、要写脚本调用 | Python 3.10+ | ✅ 已验证（3.13 可用） |
-| Windows 单文件 exe | 不想装 Python | 无 | 文档提供 |
 | Docker CLI 镜像 | 服务器 / 隔离环境 | Docker | 文档提供，未实机验证 |
 | Docker web 镜像 | 起 Web 界面 | Docker | 文档提供 |
 | 源码安装 | 要改站点库或提 PR | Python + git | 未单独验证（等价于 pip） |
-| Snap | Linux 桌面 | snapd | 文档提供 |
 
 **推荐**：日常用 `pip + venv`，需要交付给别人用就打包 Docker 的 web 镜像。不要装在全局环境——它拉 40+ 个依赖，会污染系统 site-packages（实测 venv 占用 174 MB）。
 
@@ -104,30 +102,15 @@ pip install "maigret[pdf]"     # 仅 PDF 报告需要
 
 ```bat
 :: 方式一：直接用绝对路径
-D:\tools\maigret-env\Scripts\maigret.exe someusername --html
+C:\path\to\venv\Scripts\maigret.exe someusername --html
 
 :: 方式二：加一条 alias（PowerShell 写入 $PROFILE）
-Set-Alias maigret "D:\tools\maigret-env\Scripts\maigret.exe"
+Set-Alias maigret "C:\path\to\venv\Scripts\maigret.exe"
 ```
 
 ---
 
-## 5. 方案 B：Windows 单文件 exe
-
-从 Releases 下载 `maigret_standalone.exe`，不需要 Python。
-
-```bat
-cd %USERPROFILE%\Downloads
-maigret_standalone.exe USERNAME
-maigret_standalone.exe USERNAME --html
-maigret_standalone.exe --help
-```
-
-双击运行会交互式提示输入用户名，跑完后暂停以便查看报告链接。适合临时用、或给别人用。缺点是版本更新要重新下载，且无法 `import maigret` 做二次开发。
-
----
-
-## 6. 方案 C：Docker
+## 5. 方案 B：Docker
 
 官方发布两个镜像变体，源码里对应 Dockerfile 的两个 stage：
 
@@ -195,25 +178,25 @@ docker build --target web -t maigret-web .   # Web 界面
 
 ---
 
-## 7. 方案 D：源码安装（要改站点库时）
+## 6. 方案 C：源码安装（要改站点库时）
 
 ```bash
-git clone https://github.com/soxoj/maigret
-cd maigret
+git clone https://github.com/yang11235/username-exposure-selfcheck
+cd username-exposure-selfcheck
 pip install -e .
 ```
 
-站点定义在 `maigret/resources/data.json`。改完不要用 `json.load`/`json.dump` 整体重写（会打乱格式和 diff），手工编辑对应条目，然后跑：
+站点定义分两层：上游的在 `maigret/resources/data.json`，本仓库策展的中文站在 `maigret/cn/data/sites_cn.json`。改完不要用 `json.load`/`json.dump` 整体重写（会打乱格式和 diff），手工编辑对应条目，然后跑一次真打的自检：
 
 ```bash
-python utils/update_site_data.py     # 重新生成 sites.md 与库元数据
+python utils/cn_selfcheck.py --site <站点名>
 ```
 
-再提 PR。
+判定规则怎么写见 [中文站点规则编写指南](cn-rules.md)。
 
 ---
 
-## 8. 方案 E：Web 界面上线
+## 7. 方案 D：Web 界面上线
 
 ### 8.1 本地起服务
 
@@ -248,7 +231,7 @@ waitress-serve --listen=127.0.0.1:5000 --threads=8 maigret.web.app:app
 
 ---
 
-## 9. 命令行用法
+## 8. 命令行用法
 
 ### 9.1 选站点集（决定耗时）
 
@@ -345,7 +328,7 @@ maigret target --ai --ai-model gpt-4o-mini
 
 ---
 
-## 10. 实测数据
+## 9. 实测数据
 
 环境：Windows 11，Python 3.13.14，家用宽带直连（无代理），目标 `soxoj`（项目作者公开账号，用作样本）。
 
@@ -365,7 +348,7 @@ maigret target --ai --ai-model gpt-4o-mini
 
 ---
 
-## 11. 配置文件
+## 10. 配置文件
 
 `settings.json` 按以下顺序加载，后加载的覆盖前面的：
 
@@ -421,7 +404,7 @@ Twitter 的 guest token、Vimeo 的 JWT、Weibo/Wikimapia 的 session cookie 等
 
 ---
 
-## 12. Python 库调用
+## 11. Python 库调用
 
 官方文档这页有两个坑，实测都需要修正：`data.json` 的相对路径在 pip 安装后不成立；返回结构不是文档写的 `result["url_user"]`。
 
@@ -487,7 +470,7 @@ VK | Claimed | https://vk.com/soxoj | 2 fields
 
 ---
 
-## 13. 国内网络环境的实际约束
+## 12. 国内网络环境的实际约束
 
 实测在国内直连环境下：
 
@@ -511,7 +494,7 @@ maigret user --dns-resolver threaded
 
 ---
 
-## 14. 故障排查
+## 13. 故障排查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
@@ -549,7 +532,7 @@ maigret --self-check --diagnose      # 输出每个失败站点的详细诊断
 
 ---
 
-## 15. 使用边界
+## 14. 使用边界
 
 - 只查公开信息，不碰需要登录/绕过权限的内容
 - 递归检索会把无关的人卷进来，对被误伤的对象做任何记录前先核实

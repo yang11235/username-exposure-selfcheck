@@ -39,7 +39,7 @@
   </div>
   <br>
   <div>
-    <b>English</b> · <a href="README.md">简体中文</a> · <a href="README.zh-CN.md">上游中文翻译</a> · <a href="README.fr.md">Français</a>
+    <b>English</b> · <a href="README.md">简体中文</a>
   </div>
   <br>
   <div>
@@ -94,7 +94,6 @@ Access <b>100M+ residential IPs</b> across <b>190+ countries</b> to reduce faile
 - [Demo](#demo)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Contributing](#contributing)
 - [Commercial Use](#commercial-use)
 - [About](#about)
 
@@ -108,7 +107,7 @@ pip install maigret
 maigret YOUR_USERNAME
 ```
 
-No install? Try the [community Telegram bot](https://maigret.app/readme-en) or a [Cloud Shell](#cloud-shells). 
+No install yet? See the [installation steps](#installation).
 
 Want a web UI? See [how to launch it](#web-interface).
 
@@ -176,30 +175,6 @@ maigret_standalone.exe --help                :: list all options
 ```
 
 Video guide: https://youtu.be/qIgwTZOmMmM.
-
-<a id="cloud-shells"></a>
-### Cloud Shells
-
-Run Maigret in the browser via cloud shells or Jupyter notebooks:
-
-<a href="https://console.cloud.google.com/cloudshell/open?git_repo=https://github.com/soxoj/maigret&tutorial=cloudshell-tutorial.md"><img src="https://user-images.githubusercontent.com/27065646/92304704-8d146d80-ef80-11ea-8c29-0deaabb1c702.png" alt="Open in Cloud Shell" height="50"></a>
-<a href="https://repl.it/github/soxoj/maigret"><img src="https://replit.com/badge/github/soxoj/maigret" alt="Run on Replit" height="50"></a>
-
-<a href="https://colab.research.google.com/gist/soxoj/879b51bc3b2f8b695abb054090645000/maigret-collab.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab" height="45"></a>
-<a href="https://mybinder.org/v2/gist/soxoj/9d65c2f4d3bec5dd25949197ea73cf3a/HEAD"><img src="https://mybinder.org/badge_logo.svg" alt="Open In Binder" height="45"></a>
-
-### Snap (Linux)
-
-<a href="https://snapcraft.io/maigret"><img src="https://snapcraft.io/static/images/badges/en/snap-store-black.svg" alt="Get it from the Snap Store" height="50"></a>
-
-```bash
-sudo snap install maigret
-
-# usage
-maigret username
-```
-
-Available for amd64 and arm64, no Python required. The snap is strictly confined and can write inside your home directory, so run it from there. For USB drives, connect the interface once with `sudo snap connect maigret:removable-media`.
 
 ### Local installation (pip)
 
@@ -291,7 +266,7 @@ maigret user --ai
 
 `--neo4j` writes a `*_neo4j.cypher` script of the results graph; import it with `cypher-shell -u neo4j -p <password> < report_user_neo4j.cypher` or paste it into the Neo4j Browser. Re-imports are idempotent. See the [Neo4j export docs](https://maigret.readthedocs.io/en/latest/command-line-options.html#neo4j-export).
 
-Run `maigret --help` for all options. Docs: [CLI options](https://maigret.readthedocs.io/en/latest/command-line-options.html), [more examples](https://maigret.readthedocs.io/en/latest/usage-examples.html). Running into 403s or timeouts? See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+Run `maigret --help` for all options. Docs: [CLI options](https://maigret.readthedocs.io/en/latest/command-line-options.html), [more examples](https://maigret.readthedocs.io/en/latest/usage-examples.html). Running into 403s or timeouts? See [TROUBLESHOOTING.md](https://github.com/soxoj/maigret/blob/main/TROUBLESHOOTING.md) upstream.
 
 <a id="web-interface"></a>
 ### Web interface
@@ -378,10 +353,6 @@ maigret --cloudflare-bypass <username>
 ```
 
 The bypass is opt-in (`--cloudflare-bypass` or `cloudflare_bypass.enabled` in `settings.json`) and only fires for sites whose `protection` field matches. See the [feature docs](https://maigret.readthedocs.io/en/latest/features.html#cloudflare-bypass) for backend options and configuration.
-
-## Contributing
-
-Add or fix new sites surgically in `data.json` (no `json.load`/`json.dump`), then run `./utils/update_site_data.py` to regenerate `sites.md` and the database metadata, and open a pull request. For more details, see the [CONTRIBUTING guide](https://github.com/soxoj/maigret/blob/main/CONTRIBUTING.md) and [development docs](https://maigret.readthedocs.io/en/latest/development.html). Release history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Commercial Use
 
