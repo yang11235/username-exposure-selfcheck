@@ -32,11 +32,18 @@ def load_ai_config():
     """返回 {api_key, model, base_url, source}，source 用于界面提示。"""
     cfg = dict(DEFAULTS, api_key="", source="")
 
+    # 只解析一次，且解析失败时不保留任何"部分成功"的状态。
+    # 原来这段在 DeepSeek 分支里又 json.loads 了一遍（且没接异常），
+    # settings.json 写坏时会在那里抛 JSONDecodeError —— 上面的 try 保不到它。
+    data = {}
     if SETTINGS_PATH.exists():
         try:
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8")) or {}
         except (OSError, ValueError):
             data = {}
+        if not isinstance(data, dict):
+            data = {}
+
         cfg["api_key"] = str(data.get("openai_api_key") or "").strip()
         cfg["model"] = data.get("openai_model") or cfg["model"]
         cfg["base_url"] = data.get("openai_api_base_url") or cfg["base_url"]
@@ -51,11 +58,14 @@ def load_ai_config():
             cfg["api_key"] = value
             cfg["source"] = env_name
             if env_name == "DEEPSEEK_API_KEY":
-                # 只有用户没在 settings 里显式指定时才套用 DeepSeek 的默认值
-                if not (SETTINGS_PATH.exists() and json.loads(
-                    SETTINGS_PATH.read_text(encoding="utf-8") or "{}"
-                ).get("openai_api_base_url")):
+                # 端点与模型要**成对**跟随：用户可能是「自己在 settings 里写了
+                # 端点（比如本地网关），但不想写模型」。只跟端点不跟模型，就会
+                # 拿默认的 gpt-4o 去请求那个端点——OpenAI 官方端点没配过、本地
+                # 网关也没有这个模型，请求 404/400，而错误信息完全看不出是
+                # "模型名没跟着换"。
+                if not data.get("openai_api_base_url"):
                     cfg["base_url"] = "https://api.deepseek.com/v1"
+                if not data.get("openai_model"):
                     cfg["model"] = "deepseek-chat"
             break
 

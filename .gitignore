@@ -23,6 +23,11 @@ src/
 # Output files, except requirements.txt
 *.txt
 !requirements.txt
+# 例外：AI 系统提示词是**资源文件**，不是运行产物。
+# 没有这条例外，`*.txt` 会把它一起忽略掉——它从来没进过版本库，
+# 于是「AI 分析」在任何一份 clone 里都必然抛 FileNotFoundError，
+# 而界面上只显示「调用失败：...ai_prompt.txt」，看起来像配置错误。
+!maigret/resources/ai_prompt.txt
 
 # Comma-Separated Values (CSV) Reports
 *.csv

@@ -192,3 +192,44 @@ def test_streaming_an_international_reply_finishes(monkeypatch):
     # copy is degraded to what the codepage can show.
     assert analysis == "Найден профиль 完了"
     assert "?" in read_back(stream)
+
+
+# ---------------------------------------------------------------------------
+# ai_prompt.txt 必须真的在仓库里
+# ---------------------------------------------------------------------------
+def test_ai_prompt_file_ships_with_the_package():
+    """AI 系统提示词是**资源文件**，必须随包存在。
+
+    它曾经被 .gitignore 的 `*.txt` 规则一起忽略，所以从来没进过版本库——
+    任何一次 clone 之后点「AI 分析」都必然抛
+    `FileNotFoundError: maigret/resources/ai_prompt.txt`，界面上只显示
+    「调用失败：...」。没有这条断言，同类问题还会再发生一次。
+    """
+    from maigret.ai import load_ai_prompt
+
+    prompt = load_ai_prompt()
+
+    assert prompt.strip(), '系统提示词是空的'
+    # 内容特征：至少要提到这是一份 OSINT 报告分析任务
+    assert 'OSINT' in prompt
+    assert len(prompt) > 500, f'提示词只有 {len(prompt)} 字符，像是被截断了'
+
+
+def test_ai_prompt_is_not_gitignored():
+    """防止 `*.txt` 之类的通配规则把它再排除一次。
+
+    只在有 .git 的仓库里跑；装成 wheel 的环境跳过。
+    """
+    import subprocess
+
+    repo_root = Path(__file__).resolve().parent.parent
+    if not (repo_root / '.git').exists():
+        pytest.skip('不在 git 仓库里')
+
+    proc = subprocess.run(
+        ['git', 'check-ignore', '-q', 'maigret/resources/ai_prompt.txt'],
+        cwd=str(repo_root),
+        capture_output=True,
+    )
+    # 退出码 1 = 未被忽略（期望）；0 = 被忽略（有问题）
+    assert proc.returncode == 1, 'ai_prompt.txt 又被 .gitignore 忽略了'
