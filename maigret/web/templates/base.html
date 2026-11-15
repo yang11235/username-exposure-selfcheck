@@ -283,7 +283,14 @@
                             <label class="form-check-label" for="settings-use_browser_cookies">自动读取本机 Chrome 的登录态（仅本次检索，不落盘）</label>
                             <div class="form-text">
                                 <button type="button" class="btn btn-sm btn-outline-secondary py-0" id="btn-detect-browser-cookies">检测</button>
-                                <span id="browser-cookie-status" class="ms-2">需要 Chrome 以 <code>--remote-debugging-port=9222</code> 启动</span>
+                                <span id="browser-cookie-status" class="ms-2">需要 Chrome 带 <code>--remote-debugging-port=9222</code> 和 <code>--user-data-dir</code> 启动（见下方说明）</span>
+                            </div>
+                            <div class="form-text">
+                                Chrome 157+ 不允许在默认用户目录上开远程调试（会报
+                                <code>DevTools remote debugging requires a non-default data directory</code>），
+                                所以必须显式给 <code>--user-data-dir</code>。但指向**临时目录**能连上却没有你的登录态——
+                                读到的是访客 cookie，<code>BAIDUID</code> 这类标识会让你误以为已登录。
+                                点「检测」后会逐个站点告诉你到底有没有登录。
                             </div>
                         </div>
                         <div class="mb-3 form-check">
@@ -655,8 +662,22 @@
                             }
                             const domains = Object.keys(data.domains || {});
                             const top = domains.slice(0, 6).join('、');
-                            status.textContent = `${data.browser}：${data.total} 条，覆盖 ${domains.length} 个域名（${top}${domains.length > 6 ? '…' : ''}）`;
-                            status.className = 'ms-2 text-success';
+                            // 登录态要和"有多少条 cookie"分开说：访客 cookie
+                            // 也能有一大堆，但它查不到任何个人信息。只报条数
+                            // 会让人以为"读到了就等于登录了"。
+                            const LABELS = {
+                                baidu: '百度', weibo: '微博', zhihu: '知乎', bilibili: 'B站',
+                                douban: '豆瓣', taobao: '淘宝', jd: '京东', qq: 'QQ',
+                                xiaohongshu: '小红书', douyin: '抖音'
+                            };
+                            const logins = data.logins || {};
+                            const on = Object.keys(logins).filter(k => logins[k]).map(k => LABELS[k] || k);
+                            const off = Object.keys(logins).filter(k => !logins[k]).map(k => LABELS[k] || k);
+                            let text = `${data.browser}：${data.total} 条，覆盖 ${domains.length} 个域名`;
+                            if (on.length) text += `｜已登录：${on.join('、')}`;
+                            if (off.length) text += `｜未登录：${off.join('、')}`;
+                            status.textContent = text;
+                            status.className = on.length ? 'ms-2 text-success' : 'ms-2 text-warning';
                         })
                         .catch(err => {
                             status.textContent = '检测失败：' + err;

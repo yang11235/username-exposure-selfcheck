@@ -940,7 +940,14 @@ def api_browser_cookies():
     if not info:
         return {
             'available': False,
-            'reason': '没检测到调试端口。用 --remote-debugging-port=9222 启动 Chrome 后重试',
+            'reason': (
+                '没检测到调试端口。Chrome 157+ 有一条硬性限制：'
+                '默认用户目录上不允许开远程调试（报 '
+                '"DevTools remote debugging requires a non-default data directory"），'
+                '所以必须显式指定 --user-data-dir 才能读到登录态。'
+                '注意：指定一个**临时目录**虽然能连上，但那里没有你的登录态，'
+                '读到的是访客 cookie。'
+            ),
             'port': browser_cookies.cdp_port(),
         }, 200
 
@@ -954,6 +961,10 @@ def api_browser_cookies():
         'browser': info.get('Browser'),
         'total': len(raw),
         'domains': browser_cookies.summarize(raw, limit=20),
+        # 各站是否"真的登录了"：只看有没有该站的身份凭证 cookie。
+        # 没有它就等于没登录，而 baidu.com 上的 BAIDUID 只是访客标识——
+        # 用户看到"有百度 cookie"以为登录了，实际查不出任何个人信息。
+        'logins': browser_cookies.detect_logins(raw),
     }, 200
 
 

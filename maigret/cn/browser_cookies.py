@@ -272,3 +272,47 @@ def to_cookie_header_map(jar) -> Dict[str, List[str]]:
         out.setdefault(domain, []).append(f"{name}={value or ''}")
 
     return out
+
+
+# 各站「真的登录了」的标志性 Cookie。
+#
+# 判断依据是"没有它就等于没登录"——这些都是会话凭据，登录成功才会下发，
+# 且不是访客标识。只放最有把握的那一个，宁可漏报不要误报：
+# 告诉用户"已登录"而他其实没登录，会让他以为能查到真名/手机号，结果什么都没有。
+LOGIN_MARKERS = {
+    'baidu': ('BDUSS', '百度'),
+    'weibo': ('SUB', '微博'),
+    'zhihu': ('z_c0', '知乎'),
+    'bilibili': ('SESSDATA', 'B站'),
+    'douban': ('dbcl2', '豆瓣'),
+    'taobao': ('_tb_token_', '淘宝'),
+    'jd': ('thor', '京东'),
+    'qq': ('uin', 'QQ'),
+    'xiaohongshu': ('web_session', '小红书'),
+    'douyin': ('sessionid', '抖音'),
+}
+
+
+def detect_logins(cookies: List[Dict[str, Any]]) -> Dict[str, bool]:
+    """判断各站是否真的处于登录态。
+
+    为什么需要这个：`BAIDUID` 这种访客标识会让人误以为"浏览器里有百度 cookie
+    就是登录了"。实测一个只装了访客 cookie 的 Chrome，百度相关 cookie 有 6 条
+    （BAIDUID / BAIDUID_BFESS / XFI / XFT / XFS / HMACCOUNT_BFESS），
+    但**没有 BDUSS**——等于没登录，任何个人信息都查不出来。
+
+    cookie 名字可能带 `__Host-` / `__Secure-` 前缀，比较时按去掉前缀后的
+    名字算，否则会漏判（Chrome 逐步在给会话 cookie 加这类前缀）。
+    """
+    names = set()
+    for item in cookies or ():
+        name = str(item.get("name") or "").strip()
+        for prefix in ("__Host-", "__Secure-"):
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+        names.add(name)
+
+    return {
+        key: marker in names
+        for key, (marker, _label) in LOGIN_MARKERS.items()
+    }

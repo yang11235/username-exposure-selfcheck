@@ -210,3 +210,58 @@ def test_header_map_of_none_is_empty():
     from maigret.cn.browser_cookies import to_cookie_header_map
 
     assert to_cookie_header_map(None) == {}
+
+
+# ---------------------------------------------------------------------------
+# detect_logins：访客 cookie 不等于登录
+# ---------------------------------------------------------------------------
+def test_visitor_cookie_is_not_a_login():
+    """`BAIDUID` 是访客标识，不是登录态。
+
+    实测过一个只装访客 cookie 的 Chrome：百度相关 6 条
+    （BAIDUID / BAIDUID_BFESS / XFI / XFT / XFS / HMACCOUNT_BFESS），
+    但**没有 BDUSS**。用户看到"有百度 cookie"以为登录了，
+    实际上任何个人信息都查不出来。
+    """
+    from maigret.cn.browser_cookies import detect_logins
+
+    visitor_only = [
+        {'name': 'BAIDUID'}, {'name': 'BAIDUID_BFESS'},
+        {'name': 'XFI'}, {'name': 'XFT'}, {'name': 'HMACCOUNT_BFESS'},
+    ]
+
+    logins = detect_logins(visitor_only)
+
+    assert logins['baidu'] is False
+
+
+def test_real_session_cookie_is_a_login():
+    from maigret.cn.browser_cookies import detect_logins
+
+    logins = detect_logins([{'name': 'BDUSS'}, {'name': 'SUB'}, {'name': 'SESSDATA'}])
+
+    assert logins['baidu'] is True
+    assert logins['weibo'] is True
+    assert logins['bilibili'] is True
+    assert logins['zhihu'] is False
+
+
+def test_login_detection_handles_secure_prefix():
+    """Chrome 在给会话 cookie 逐步加 `__Secure-` / `__Host-` 前缀。
+
+    按原名字比较会漏判，表现为"明明登录着却说未登录"。
+    """
+    from maigret.cn.browser_cookies import detect_logins
+
+    logins = detect_logins([{'name': '__Secure-SESSDATA'}, {'name': '__Host-SUB'}])
+
+    assert logins['bilibili'] is True
+    assert logins['weibo'] is True
+
+
+def test_login_detection_of_empty_is_all_false():
+    from maigret.cn.browser_cookies import detect_logins
+
+    logins = detect_logins([])
+
+    assert logins and not any(logins.values())
