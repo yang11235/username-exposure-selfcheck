@@ -237,7 +237,9 @@ class CDPSession:
         await self._transport.close()
 
 
-async def list_targets(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, session=None) -> List[Dict[str, Any]]:
+async def list_targets(
+    host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, session=None
+) -> List[Dict[str, Any]]:
     """列出浏览器里可用的页面 target。
 
     `session` 可注入（测试用），不传就自己开一个短连接。
@@ -310,7 +312,6 @@ class CDPBrowser:
     async def fetch(self, url: str, timeout: Optional[float] = None) -> tuple:
         """返回 `(status, html)`。status 取自主文档的网络响应，取不到时为 None。"""
         timeout = timeout or DEFAULT_TIMEOUT
-        status_box: Dict[str, Any] = {}
 
         # 先注册等待者再导航：loadEventFired 可能在 navigate 返回前就到
         load_waiter = asyncio.ensure_future(self._session.wait_for_event("Page.loadEventFired", timeout))

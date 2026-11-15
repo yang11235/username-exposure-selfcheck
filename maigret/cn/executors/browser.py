@@ -23,7 +23,7 @@
 import ipaddress
 import logging
 import os
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from .cdp import CDPBrowser, CDPError
@@ -141,7 +141,6 @@ def is_public_url(url: Optional[str]) -> bool:
         or addr.is_multicast
         or addr.is_unspecified
     )
-
 
 
 def cdp_port() -> int:

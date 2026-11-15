@@ -48,6 +48,36 @@ jobs:
           name: htmlcov-${{ strategy.job-index }}
           path: htmlcov
 
+  lint:
+    # 只 lint 本仓库自己维护的代码，不碰上游留下的 maigret/*.py 与 tests/。
+    #
+    # 为什么限定范围：上游代码里有一百多处既存告警（E501 长行、E731 lambda
+    # 赋值、测试里的重复函数名……）。把全仓纳入等于要么先改几百行上游代码
+    # （diff 被污染，以后合上游更新满屏冲突），要么把规则放宽到形同虚设。
+    # 而 cn/ 与 web/ 是这轮新增的、真正会改坏的地方——它们必须干净。
+    #
+    # E203 排除：black 风格的切片写作 `x[1 : 2]`，与 PEP8 的"冒号前不留空格"
+    # 冲突，这是 black 与 flake8 的已知分歧，不是代码问题。
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install flake8
+        # 钉大版本上限：flake8/pycodestyle 新增检查项是大版本常态，
+        # 不设上限的话某天 runner 装到 8.x，会因为一条新规则让所有 PR 变红。
+        run: python -m pip install "flake8>=7.1.1,<8"
+
+      - name: Lint maintained code
+        run: |
+          flake8 --max-line-length 110 --extend-ignore E203 \
+            maigret/cn maigret/web utils wizard.py
+
   minimal-install:
     # Verify a fresh `pip install maigret` succeeds and the test suite
     # passes WITHOUT the optional [pdf] extra and WITHOUT system cairo.

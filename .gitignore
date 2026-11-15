@@ -29,7 +29,11 @@ src/
 
 # MacOS Folder Metadata File
 .DS_Store
-/reports/
+
+# 报告输出目录。原写法是 `/reports/`（仅根目录），但报告目录的位置由
+# config 决定（默认 ~/.maigret/reports），换个配置就会落到仓库内的子目录里，
+# 根目录锚点拦不住。去掉锚点，任何层级的 reports/ 都不进版本库。
+reports/
 
 # Testing
 .coverage

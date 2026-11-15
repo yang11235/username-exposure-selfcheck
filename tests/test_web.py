@@ -10,7 +10,6 @@ plain dict) are caught automatically.
 import asyncio
 import json
 import os
-import types
 
 import pytest
 
@@ -1058,56 +1057,488 @@ def test_search_multiple_usernames_keeps_the_ones_that_worked(web_app, monkeypat
     assert [u for u, _, _ in out] == ['good']
 
 
-def test_build_reports_survives_an_empty_result_set(web_app, monkeypatch):
-    """一个用户名都没搜成时，不能因为 `context` 未赋值把整个任务炸掉。
+# ---------------------------------------------------------------------------
+# 回归：浏览器 Cookie 开关必须真的传到检索
+# ---------------------------------------------------------------------------
+def test_parse_search_options_passes_browser_cookie_setting(web_app):
+    """`resolve_cookie_source()` 读的是 options['use_browser_cookies']。
 
-    真实故障（2026-11-15）：设置里勾了「使用 cookies」但 cookies.txt 不存在，
-    检索在发出第一个请求前就失败，`search_multiple_usernames` 返回空列表，
-    然后 `build_reports` 在循环外读 `context` → UnboundLocalError，
-    用户看到的是"检索失败：cannot access local variable 'context'"。
+    这个键曾经漏在 parse_search_options 的返回字典里，于是设置页能勾、
+    /api/browser-cookies 能显示"检测到 91 条"，检索时却一条都不用——
+    开关看起来在工作，实际是死的。锁住它，别再漏。
     """
-    monkeypatch.setattr(maigret.report, 'save_csv_report', lambda *a, **kw: None)
-    monkeypatch.setattr(maigret.report, 'save_json_report', lambda *a, **kw: None)
-    monkeypatch.setattr(maigret.report, 'save_pdf_report', lambda *a, **kw: None)
-    monkeypatch.setattr(maigret.report, 'save_html_report', lambda *a, **kw: None)
+    web_app.save_settings({**web_app.DEFAULT_SETTINGS, 'use_browser_cookies': True})
 
-    report = web_app.build_reports([], ['yang11235'], 'emptykey')
+    options = web_app.parse_search_options({})
 
-    assert report['status'] == 'completed'
-    assert report['individual_reports'] == []
-    assert report['found_count'] == 0
-    # 没有结果就没有可分析的东西，别把空上下文喂给 AI 摘要
-    assert report['ai_input'] == ''
+    assert options['use_browser_cookies'] is True
 
 
-def test_search_multiple_usernames_raises_when_every_username_fails(web_app, monkeypatch):
-    """全部失败必须报错。
+def test_parse_search_options_browser_cookie_setting_defaults_off(web_app):
+    """没配置时必须是 False，不能是 None 或缺键。
 
-    返回空列表的话，用户看到的是一个"已完成但 0 命中"的结果页 ——
-    和"这个人确实没账号"长得一模一样，而这正是最不该混淆的两件事。
+    缺键会让 `options.get(...)` 静默返回 None，和"用户没开"分不出来；
+    显式布尔值才能在下游做可靠判断。
     """
+    options = web_app.parse_search_options({})
 
-    async def boom(username, options):
-        raise FileNotFoundError("No such file or directory: 'cookies.txt'")
-
-    monkeypatch.setattr(web_app, 'maigret_search', boom)
-
-    with pytest.raises(RuntimeError) as excinfo:
-        asyncio.run(web_app.search_multiple_usernames(['a', 'b'], {}))
-
-    assert 'cookies.txt' in str(excinfo.value)
+    assert options['use_browser_cookies'] is False
 
 
-def test_search_multiple_usernames_keeps_the_ones_that_worked(web_app, monkeypatch):
-    """部分失败不该连累成功的：全丢掉的话用户会以为谁都没查。"""
+def test_browser_cookie_source_is_reached_when_enabled(web_app, monkeypatch):
+    """端到端：开了浏览器 Cookie，resolve_cookie_source 真的去调 browser_cookies.collect()。
 
-    async def half(username, options):
-        if username == 'bad':
-            raise RuntimeError('站点库读取失败')
-        return {'GitHub': {'status': None}}
+    只断言 options 里有那个键还不够——中间任何一处把 options 换了对象，
+    键在、链路断，用户看到的仍然是"勾了没用"。这里直接验调用发生。
+    """
+    import logging
 
-    monkeypatch.setattr(web_app, 'maigret_search', half)
+    from maigret.cn import browser_cookies
 
-    out = asyncio.run(web_app.search_multiple_usernames(['bad', 'good'], {}))
+    called = {}
 
-    assert [u for u, _, _ in out] == ['good']
+    async def fake_collect():
+        called['yes'] = True
+        return []
+
+    monkeypatch.setattr(browser_cookies, 'collect', fake_collect)
+
+    options = web_app.parse_search_options({})
+    options['use_browser_cookies'] = True
+
+    asyncio.run(web_app.resolve_cookie_source(options, logging.getLogger('t')))
+
+    assert called.get('yes') is True
+
+
+# ---------------------------------------------------------------------------
+# 回归：从主页 URL 开始时 logger 必须存在
+# ---------------------------------------------------------------------------
+def test_stream_search_with_parse_url_does_not_hit_undefined_logger(web_app, monkeypatch):
+    """`_stream_search` 里曾漏了 `logger` 定义，被 except 吞成
+    「URL 解析失败：name 'logger' is not defined」——于是"从主页 URL 开始"
+    只解析出核心锚点，页面里的其它 ID 一个都抽不出来。
+
+    这里替换 extract_ids_from_page 来记录收到的 logger 是否可用：
+    logger 未定义时，调用点会抛 NameError，走不到这个假函数。
+    """
+    seen = {}
+
+    def fake_extract(url, logger, timeout=5):
+        seen['logger'] = logger
+        return {'other_id': 'username'}
+
+    monkeypatch.setattr(web_app, 'extract_ids_from_page', fake_extract)
+
+    import queue as queue_mod
+
+    q = queue_mod.Queue()
+    job = {'queue': q, 'cancelled': True}
+
+    asyncio.run(
+        web_app._stream_search(
+            job, ['soxoj'], {'parse_url': 'https://github.com/soxoj', 'timeout': 5}
+        )
+    )
+
+    assert seen.get('logger') is not None
+
+    events = []
+    while not q.empty():
+        events.append(q.get())
+
+    errors = [e for e in events if e.get('type') == 'error']
+    assert not any('logger' in str(e.get('message', '')) for e in errors), errors
+    # 解析结果要真的推给前端
+    assert any(e.get('type') == 'parsed' for e in events), events
+
+
+# ---------------------------------------------------------------------------
+# 安全：/settings 不能变成开放重定向
+# ---------------------------------------------------------------------------
+def test_settings_update_rejects_foreign_referrer(client):
+    """Referer 是客户端可控头。直接 redirect(request.referrer) 等于给了
+    一个跳到任意站点的入口，常被用来把钓鱼页伪装成本工具的后续步骤。
+    """
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': 'https://evil.example.com/phish'},
+    )
+
+    assert resp.status_code == 302
+    assert 'evil.example.com' not in resp.headers['Location']
+
+
+def test_settings_update_allows_same_host_referrer(client):
+    """站内地址要能跳回去——设置面板每页都有，保存后回到原页面才正常。
+
+    注意返回的是**路径**而不是原始绝对 URL：只回 path 就不必比较 host，
+    也就绕开了"Host 头同样可伪造"这个前提。浏览器拿到 Location: /history
+    一样会跳回本页。
+    """
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': 'http://localhost/history'},
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers['Location'] == '/history'
+
+
+def test_settings_update_keeps_query_string(client):
+    """带查询串的站内地址要保留查询串，否则跳回去筛选条件就丢了。"""
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': 'http://localhost/history?page=2&q=x'},
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers['Location'] == '/history?page=2&q=x'
+
+
+def test_settings_update_rejects_control_char_bypass(client):
+    """`/\\t/evil.com` 归一化后"以 / 开头、不以 // 开头"会被旧逻辑放行。
+
+    TAB 在写响应头时被剥掉，Location 变成 `//evil.com`，浏览器按协议相对
+    地址解析成外站。控制字符必须显式拒绝。
+    """
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': '/\t/evil.example.com/x'},
+    )
+
+    assert resp.status_code == 302
+    loc = resp.headers['Location']
+    assert 'evil.example.com' not in loc
+    assert loc == '/'
+
+
+def test_settings_update_rejects_forged_host_with_matching_referrer(client):
+    """同时伪造 Host 和 Referer 不能让外站跳转成立。
+
+    若判定写成 `parsed.netloc == request.host`，而 Host 由客户端控制，
+    两边一起伪造就通过了。只回 path 的方案不看 host，天然免疫。
+    """
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={
+            'Host': 'evil.example.com',
+            'Referer': 'http://evil.example.com/history',
+        },
+    )
+
+    assert resp.status_code == 302
+    assert 'evil.example.com' not in resp.headers['Location']
+
+
+def test_settings_update_rejects_prefix_squatting_referrer(client):
+    """`localhost:5000.evil.com` 以本站地址开头，startswith 会放行。
+    必须按 host 全等判，不能按字符串前缀。
+    """
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': 'http://localhost:5000.evil.com/x'},
+    )
+
+    assert resp.status_code == 302
+    assert 'evil.com' not in resp.headers['Location']
+
+
+def test_settings_update_rejects_protocol_relative_referrer(client):
+    """`//evil.example.com` 是协议相对地址，浏览器会当成外站。
+    它同时"以 / 开头"，只判 startswith('/') 会放行。
+    """
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': '//evil.example.com/x'},
+    )
+
+    assert resp.status_code == 302
+    assert 'evil.example.com' not in resp.headers['Location']
+
+
+def test_settings_update_rejects_backslash_referrer(client):
+    """反斜杠会被部分浏览器归一成斜杠，`/\\evil.com` 等同 `//evil.com`。"""
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': '/\\evil.example.com/x'},
+    )
+
+    assert resp.status_code == 302
+    assert 'evil.example.com' not in resp.headers['Location']
+
+
+# ---------------------------------------------------------------------------
+# job_results 有界保留
+
+
+# ---------------------------------------------------------------------------
+# job_results 有界保留
+# ---------------------------------------------------------------------------
+def _seed_job(web_app, key, started, finished=None, status='completed'):
+    """造一条 job_results 记录。finished=None 表示"还在跑"。"""
+    entry = {
+        'status': status,
+        'started_at': started,
+        'session_folder': f'search_{key}',
+        'usernames': ['x'],
+        'individual_reports': [],
+        'found_count': 0,
+        'ai_input': '',
+        'graph_file': 'g',
+    }
+    if finished is not None:
+        entry['finished_at'] = finished
+    web_app.job_results[key] = entry
+    web_app.background_jobs[key] = {'completed': finished is not None}
+
+
+def test_prune_job_results_keeps_most_recently_finished(web_app):
+    """裁剪按**完成时间**留最新的，不是开始时间。
+
+    真实故障场景：一个跑了两小时的检索，started_at 是最早的；按开始时间排
+    它就是"最旧"，任务一完成立刻把自己裁掉——用户等了两小时，拿到的是
+    「无效的检索会话」。这条测试专门造这个形态。
+    """
+    web_app.job_results.clear()
+    web_app.background_jobs.clear()
+
+    limit = web_app.MAX_JOB_RESULTS
+    # 造 limit 条"短任务"：开始和完成都集中在 02:xx 之后（都在 slow 完成之后）。
+    # 关键：它们的 started_at 必须全部晚于 slow 的 started_at，否则两种排序
+    # 都会挑中同一条，测试就分不出对错了。
+    for i in range(limit):
+        _seed_job(
+            web_app,
+            f'quick{i:03d}',
+            started=f'2026-01-01 02:{i // 60:02d}:{i % 60:02d}',
+            finished=f'2026-01-01 02:{i // 60:02d}:{i % 60:02d}',
+        )
+    # 1 条长任务：开始最早（00:00），完成最晚（04:00）。
+    # 按 started_at 排序 → 它排第一 → 被裁掉（错误行为）；
+    # 按 finished_at 排序 → 它排最后 → 留下（正确行为）。
+    _seed_job(
+        web_app, 'slow', started='2026-01-01 00:00:00', finished='2026-01-01 04:00:00'
+    )
+
+    # 刻意不传 keep：这里要单独考排序方向，别让 keep 把问题盖住。
+    # 调用方（finally 里）会传 keep，但那是第二道保险，不是这道测试的目标。
+    web_app._prune_job_results()
+
+    assert len(web_app.job_results) == limit
+    # 长任务开始最早、完成最晚 —— 按开始时间排会被误删，按完成时间排必须留下
+    assert 'slow' in web_app.job_results, '按开始时间排序会把刚跑完的长任务裁掉'
+    # 完成时间最早的那条被丢掉
+    assert 'quick000' not in web_app.job_results
+
+
+def test_prune_job_results_never_drops_in_flight_entries(web_app):
+    """没有 finished_at 的条目（正在跑）不参与裁剪。
+
+    旧实现把缺时间的当空串排序键，空串最小 → 排最前 → 第一个被删；
+    接着 finally 里写 job_results[key]['started_at'] 抛 KeyError，
+    /status 永久停在未完成，前端无限轮询。
+    """
+    web_app.job_results.clear()
+    web_app.background_jobs.clear()
+
+    limit = web_app.MAX_JOB_RESULTS
+    for i in range(limit):
+        _seed_job(
+            web_app,
+            f'done{i:03d}',
+            started=f'2026-01-01 00:00:{i:02d}',
+            finished=f'2026-01-01 00:05:{i:02d}',
+        )
+    # 一条正在跑的：有 started_at，没有 finished_at
+    _seed_job(web_app, 'running', started='2026-01-01 00:00:00')
+
+    web_app._prune_job_results()
+
+    assert 'running' in web_app.job_results, '正在跑的条目被裁掉了'
+    # 裁剪仍然发生了（回来一条旧的）
+    assert len(web_app.job_results) == limit
+
+
+def test_prune_job_results_keeps_background_job_record(web_app):
+    """裁掉结果后 background_jobs 要留着。
+
+    留着 → /status 走"该检索会话没有结果"（真话：跑完过，报告被回收了）。
+    删掉 → /status 走"无效的检索会话"，和从未存在过的 timestamp 分不出来。
+    """
+    web_app.job_results.clear()
+    web_app.background_jobs.clear()
+
+    limit = web_app.MAX_JOB_RESULTS
+    for i in range(limit + 1):
+        _seed_job(
+            web_app,
+            f'j{i:03d}',
+            started=f'2026-01-01 00:00:{i % 60:02d}',
+            finished=f'2026-01-01 00:10:{i % 60:02d}',
+        )
+
+    web_app._prune_job_results()
+
+    dropped = [k for k in [f'j{i:03d}' for i in range(limit + 1)]
+               if k not in web_app.job_results]
+    assert dropped, '这条测试需要至少裁掉一条'
+    for key in dropped:
+        assert key in web_app.background_jobs, f'{key} 的 background_jobs 被删了'
+
+
+def test_prune_job_results_is_noop_below_limit(web_app):
+    """没超限时不能有任何副作用。"""
+    web_app.job_results.clear()
+    web_app.background_jobs.clear()
+    _seed_job(web_app, 'only', started='2026-01-01 00:00:00', finished='2026-01-01 00:01:00')
+
+    web_app._prune_job_results()
+
+    assert list(web_app.job_results) == ['only']
+    assert 'only' in web_app.background_jobs
+
+
+def test_snapshot_results_is_stable_while_pruning(web_app):
+    """/results 与 /history 必须拿快照再遍历。
+
+    直接 `for r in job_results.values()` 在另一线程 pop 时会抛
+    `dictionary changed size during iteration`，而裁剪恰好发生在检索结束时。
+    """
+    web_app.job_results.clear()
+    web_app.background_jobs.clear()
+
+    limit = web_app.MAX_JOB_RESULTS
+    for i in range(limit):
+        _seed_job(
+            web_app,
+            f'j{i:03d}',
+            started=f'2026-01-01 00:00:{i % 60:02d}',
+            finished=f'2026-01-01 00:10:{i % 60:02d}',
+        )
+
+    snap = web_app._snapshot_results()
+    # 快照拿到之后，另一线程裁剪，快照本身不受影响
+    _seed_job(web_app, 'extra', started='2026-01-01 05:00:00', finished='2026-01-01 05:01:00')
+    web_app._prune_job_results()
+
+    assert len(snap) == limit  # 遍历不会 RuntimeError，长度也不变
+    assert all(isinstance(item, tuple) and len(item) == 2 for item in snap)
+
+
+def test_settings_update_rejects_triple_slash_referrer(client):
+    """`///evil.com` 会被 urlparse 解析成 host=""、path="/evil.com"。
+
+    单看 path 是个合法站内路径，就漏过去了；必须按原始串是否以 `//` 开头先挡。
+    """
+    for ref in ('///evil.example.com/x', '////evil.example.com/x'):
+        resp = client.post(
+            '/settings',
+            data={'timeout': '10', 'top_sites': '500'},
+            headers={'Referer': ref},
+        )
+        assert resp.status_code == 302
+        assert 'evil.example.com' not in resp.headers['Location'], ref
+
+
+def test_settings_update_rejects_uppercase_host_referrer(client):
+    """大小写不同的 host 要按外站处理（比较是大小写敏感的）。
+
+    这里不是"误拒合法请求"的 bug：真实浏览器发 Referer 时 host 与 Host 头
+    同源同大小写，走的是 path 分支。构造 `EVIL.com` 只是确保不会被当成站内。
+    """
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': 'http://EVIL.example.com/x'},
+    )
+
+    assert resp.status_code == 302
+    assert 'EVIL.example.com' not in resp.headers['Location']
+
+
+def test_settings_update_keeps_nested_path(client):
+    """多段路径要原样保留，否则 /results/search_xxx 这种跳转就坏了。"""
+    resp = client.post(
+        '/settings',
+        data={'timeout': '10', 'top_sites': '500'},
+        headers={'Referer': '/results/search_20260101_120000'},
+    )
+
+    assert resp.status_code == 302
+    assert resp.headers['Location'] == '/results/search_20260101_120000'
+
+
+def test_prune_job_results_removes_all_prunable_when_most_are_in_flight(web_app):
+    """候选（已完成）少于超出量时，要把候选全部裁掉，不动 in-flight 的。
+
+    上限的语义是"最多保留 50 条已完成结果"，不是"总数硬上限"：正在跑的
+    条目无法删除，只能等它们结束。所以这里断言的是"可裁的全裁掉了"，
+    而不是"总数降到了 50"——后者在有 in-flight 时本来就不成立。
+    """
+    web_app.job_results.clear()
+    web_app.background_jobs.clear()
+
+    limit = web_app.MAX_JOB_RESULTS
+    # 3 条已完成（可裁），60 条 in-flight（不可裁）
+    for i in range(3):
+        _seed_job(
+            web_app, f'done{i}',
+            started=f'2026-01-01 00:00:0{i}', finished=f'2026-01-01 00:01:0{i}',
+        )
+    for i in range(limit + 10):
+        _seed_job(web_app, f'run{i:03d}', started='2026-01-01 00:00:00')
+
+    web_app._prune_job_results()
+
+    # 3 条可裁的全部删掉，in-flight 一条不动
+    assert all(f'done{i}' not in web_app.job_results for i in range(3))
+    assert all(f'run{i:03d}' in web_app.job_results for i in range(limit + 10))
+
+
+@pytest.mark.parametrize(
+    'raw,expected',
+    [
+        ('false', False),
+        ('False', False),
+        ('0', False),
+        ('no', False),
+        ('off', False),
+        ('', False),
+        ('true', True),
+        ('1', True),
+        ('yes', True),
+        (True, True),
+        (False, False),
+        (None, False),
+    ],
+)
+def test_as_bool_normalizes_handwritten_settings(web_app, raw, expected):
+    """手写 settings.json 时 `"use_cookies": "false"` 必须真的是 False。
+
+    `bool("false")` 是 True——用户以为自己关掉了开关，实际开着。
+    这个坑对 use_cookies 和 use_browser_cookies 都成立。
+    """
+    assert web_app._as_bool(raw) is expected
+
+
+def test_parse_search_options_honours_string_false(web_app, tmp_path):
+    """settings.json 里手写字符串 "false" 时，options 里必须是 False。"""
+    import json
+
+    path = web_app.app.config['SETTINGS_FILE']
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'use_cookies': 'false', 'use_browser_cookies': '0'}, f)
+
+    options = web_app.parse_search_options({})
+
+    assert options['use_cookies'] is False
+    assert options['use_browser_cookies'] is False

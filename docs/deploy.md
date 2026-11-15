@@ -141,13 +141,25 @@ docker run --rm -e HTTP_PROXY=http://host.docker.internal:7890 soxoj/maigret:lat
 ### 6.2 Web 界面
 
 ```bash
-docker run -d --name maigret-web -p 5000:5000 soxoj/maigret:web
+# 本机使用（推荐）：把宿主机端口绑到回环地址
+docker run -d --name maigret-web -p 127.0.0.1:5000:5000 soxoj/maigret:web
 
 # 换端口
-docker run -d -p 8080:8080 -e PORT=8080 soxoj/maigret:web
+docker run -d -p 127.0.0.1:8080:8080 -e PORT=8080 soxoj/maigret:web
 ```
 
-镜像里 `ENV PORT=5000`、`EXPOSE 5000`，入口会执行 `maigret --web "$PORT"`。
+镜像里 `ENV PORT=5000`、`EXPOSE 5000`、`FLASK_HOST=0.0.0.0`，入口会执行 `maigret --web "$PORT"`。
+
+> **`-p` 左边那一侧的地址是关键。**
+>
+> 容器内必须绑 `0.0.0.0`，否则 docker 转发过来的流量到不了容器（会 connection
+> refused）。所以安全边界不在 `FLASK_HOST`，而在 `-p` 的宿主侧地址：
+>
+> - `-p 127.0.0.1:5000:5000` —— 只有本机能访问。本机自查就用这个。
+> - `-p 5000:5000` —— 绑定所有网卡，局域网/公网可达。
+>
+> 本项目的 Web 端**没有鉴权、没有限流**，`/history` 是所有人共用的一份查询
+> 记录。这么发布等于把每个人的自查记录摊开，只在完全可控的隔离环境里这么做。
 
 ### 6.3 容器内建议关掉数据库自动更新
 

@@ -16,8 +16,10 @@ import json
 import queue
 import uuid
 from datetime import datetime
+import threading
 from threading import Thread
 from typing import Any, Dict
+from urllib.parse import urlparse
 import maigret
 import maigret.settings
 from maigret.checking import build_cloudflare_bypass_config
@@ -40,14 +42,93 @@ app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', os.urandom(24).hex())
 
 # add background job tracking
+#
+# 这两个 dict 被多个线程同时读写：Flask 的请求线程（/history、/results）、
+# 每次检索起的 worker 线程、SSE 的生成器。CPython 的 dict 单次操作是原子的，
+# 但"迭代 + 删除"不是——读侧边遍历边被 pop 会抛
+# `dictionary changed size during iteration`。所以：
+#   - 写侧（裁剪）在锁内改；
+#   - 读侧一律先 `list(...)` 拿快照再遍历，见 _snapshot_results()。
+# 这把锁只保护这两个 dict，不涉及任何 I/O，持锁时间是微秒级。
+_jobs_lock = threading.Lock()
+
 background_jobs: Dict[str, Any] = {}
 job_results = {}
+
+# 保留多少次检索的结果。
+#
+# job_results 只增不减：每次检索往里塞一份完整报告（含 ai_input 的整篇
+# markdown），单条约 10KB，长期开着服务跑几百次就是几 MB 常驻。这对本地
+# 工具不算致命，但没有任何理由让它无限长——/history 页也刷不出第 200 条。
+#
+# 裁剪按 finished_at 从旧到新删，且永远跳过"正在跑"和"当前这次"的条目；
+# 细节见 _prune_job_results 的 docstring（那里记了三个曾经踩过的坑）。
+MAX_JOB_RESULTS = 50
 
 # Live (streaming) scan jobs, keyed by job_id. Each entry:
 #   {'queue': Queue, 'cancelled': bool, 'loop': event loop, 'task': asyncio task}
 # ponytail: in-memory, single-process. Entries are dropped when their SSE stream
 # ends; a stream that's never consumed lingers — fine for a local tool.
 live_jobs: Dict[str, Any] = {}
+
+
+def _prune_job_results(keep=None) -> None:
+    """把 job_results 裁剪到 MAX_JOB_RESULTS 条，`keep` 指定的条目永不删除。
+
+    三个坑，都是实测踩出来的，改动前先读完：
+
+    ① 按**完成时间**排序，不能按开始时间。
+       一个跑了两小时的检索，它的 started_at 是最早的，按开始时间排就是
+       "最旧"，任务一完成立刻把自己裁掉 —— 用户等了两小时，拿到的是
+       「无效的检索会话」。所以这里用 finished_at（在 finally 里写入）。
+
+    ② 没有完成时间的条目不参与裁剪。
+       这类条目是"正在跑"的（或极端情况下写入中途），它们既不该被当成
+       最旧条目删掉，也不该被计入可裁数量。旧的排序键把空串当最小，
+       实际行为与"排最后"相反，导致 in-flight 条目被删、finally 里
+       抛 KeyError、/status 永久停在未完成。
+
+    ③ 只在超出上限时才排序。
+       裁剪是罕见操作，没超限就立刻返回，不必让每次检索付 O(n log n)。
+    """
+    overflow = len(job_results) - MAX_JOB_RESULTS
+    if overflow <= 0:
+        return
+
+    with _jobs_lock:
+        candidates = [
+            (key, value)
+            for key, value in job_results.items()
+            if key != keep and value.get('finished_at')
+        ]
+        # 用实际候选数收敛一次。切片本身就会截断（candidates[:overflow] 在
+        # 候选不足时只切到有的那些），所以这里不是修 bug，只是把意图写明：
+        # 可删的条数不可能超过候选数。真正要注意的是「候选不足时 dict 仍会
+        # 高于上限」——那是因为有一批条目正在跑，它们不能被删，只能等它们跑完。
+        removable = min(overflow, len(candidates))
+        if removable <= 0:
+            return
+
+        candidates.sort(key=lambda kv: kv[1]['finished_at'])
+        for key, _ in candidates[:removable]:
+            job_results.pop(key, None)
+            # background_jobs **故意保留**：删了它，/status/<ts> 会走
+            # "无效的检索会话"分支（`timestamp not in background_jobs`），
+            # 和从未存在过的 timestamp 无法区分。留着 completed=True 则会走
+            # "该检索会话没有结果"——那句话是真话：它确实跑完过，只是报告
+            # 被内存上限回收了。宁可说"结果没了"，也不要说"没有这次会话"。
+
+
+def _snapshot_results() -> list:
+    """job_results 的快照，供所有读侧遍历。
+
+    直接 `for r in job_results.values()` 在另一线程裁剪时会抛
+    `dictionary changed size during iteration`——而裁剪恰好发生在每次检索
+    结束时，正是用户去看 /history、/results 的时刻。`list()` 在锁内一次取完，
+    读侧拿到的是稳定副本。
+    """
+    with _jobs_lock:
+        return list(job_results.items())
 
 
 class StreamNotify:
@@ -161,6 +242,20 @@ DEFAULT_SETTINGS = {
     # 同时打开时以浏览器为准 —— 浏览器里的那份永远是"当前"的。
     'use_browser_cookies': False,
 }
+
+
+def _as_bool(value) -> bool:
+    """把 settings.json 里手写的值收敛成 bool。
+
+    `bool("false")` 是 True —— 手写配置时很容易踩这个。JSON 里写 `false`
+    得到的是 False（没问题），但写成字符串 `"false"`、`"0"`、`"no"` 就全变成
+    True 了，用户以为自己关掉了某个开关，实际是开着的。
+
+    只把明确的"假"值当 False，其余按 Python 的真值语义（None → False）。
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in ('', '0', 'false', 'no', 'off')
+    return bool(value)
 
 
 def load_settings():
@@ -497,8 +592,18 @@ def process_search_task(usernames, options, timestamp):
             'usernames': usernames,
         }
     finally:
-        job_results[timestamp]['started_at'] = started_at
-        background_jobs[timestamp]['completed'] = True
+        # 用 setdefault 兜住"上面两条赋值路径都没走到"的极端情况（比如
+        # build_reports 抛了、except 分支也抛了），否则这里会在 finally 里
+        # 抛 KeyError，把真正的原因盖掉，还会让 background_jobs 永远停在
+        # completed=False，前端无限轮询。
+        entry = job_results.setdefault(
+            timestamp, {'status': 'failed', 'error': '未知错误', 'usernames': usernames}
+        )
+        entry['started_at'] = started_at
+        entry['finished_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        background_jobs.setdefault(timestamp, {})['completed'] = True
+        # keep=timestamp：本次刚跑完的这条永远不裁，别让用户拿不到自己刚等到的结果。
+        _prune_job_results(keep=timestamp)
 
 
 def parse_usernames(form):
@@ -511,7 +616,11 @@ def parse_search_options(form):
     return {
         'top_sites': settings['top_sites'],
         'timeout': settings['timeout'],
-        'use_cookies': bool(settings.get('use_cookies')),
+        'use_cookies': _as_bool(settings.get('use_cookies')),
+        # 必须和 use_cookies 一起传：resolve_cookie_source() 读的是
+        # options['use_browser_cookies']，设置页里勾了却漏传这个键，
+        # 开关就是死的——页面能勾、能检测到 Cookie 条数，检索时一条也不用。
+        'use_browser_cookies': _as_bool(settings.get('use_browser_cookies')),
         'all_sites': form.get('mode') == 'full',
         'disable_recursive_search': settings['disable_recursive_search'],
         'disable_extracting': settings['disable_extracting'],
@@ -530,6 +639,11 @@ def parse_search_options(form):
 async def _stream_search(job, usernames, options):
     q = job['queue']
     general_results = []
+    # 本函数里 extract_ids_from_page 需要一个 logger（它是上游 maigret.py 的
+    # 函数，签名要求传 logger）。原来这里漏了定义，被下面的 except 吞成
+    # 「URL 解析失败：name 'logger' is not defined」，于是"从主页 URL 开始"
+    # 只解析出了核心锚点，页面里的其它 ID 一个都没抽出来。
+    logger = setup_logger(logging.WARNING, 'maigret')
 
     # 从主页 URL 反解出「站点 + 用户名」，记为本次检索的核心锚点
     parse_url = options.get('parse_url')
@@ -544,8 +658,16 @@ async def _stream_search(job, usernames, options):
 
     if parse_url:
         try:
-            extracted = extract_ids_from_page(
-                parse_url, logger, timeout=int(options.get('timeout', 10))
+            # 用 to_thread 跑：extract_ids_from_page 内部是 requests 的同步
+            # 请求，还会按 mutate_url 展开成多个 URL。直接在协程里调，会把
+            # 整个事件循环卡住若干个 timeout 那么久——SSE 断流、进度条不动、
+            # /stop 也点不进去（job['task'] 还没赋值）。它本来就是阻塞 I/O，
+            # 丢给线程池才是正确形态。
+            extracted = await asyncio.to_thread(
+                extract_ids_from_page,
+                parse_url,
+                logger,
+                timeout=int(options.get('timeout', 10)),
             )
         except Exception as exc:
             extracted = {}
@@ -623,6 +745,8 @@ def run_stream_job(job_id, usernames, options):
             if _anchor:
                 job_results[job_id]['anchor'] = _anchor
             job_results[job_id]['started_at'] = started_at
+            job_results[job_id]['finished_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            _prune_job_results(keep=job_id)
             done_event['redirect'] = f"/results/search_{job_id}"
         except Exception as e:
             logging.error(f"Error building reports for live scan {job_id}: {str(e)}")
@@ -671,6 +795,7 @@ def ai_analysis(job_id):
         return {'error': f'调用失败：{exc}'}, 502
 
     return {'ok': True, 'text': text, 'model': cfg.get('model'), 'source': cfg.get('source')}
+
 
 @app.route('/api/scan/<job_id>/stream')
 def scan_stream(job_id):
@@ -746,6 +871,7 @@ def anchor_score(job_id):
         return data, 400
     return {'ok': True, **data}
 
+
 @app.route('/api/sites')
 def api_sites():
     """Site names/URLs for the Filters site-picker datalist, fetched lazily
@@ -811,13 +937,74 @@ def settings_update():
         except Exception as _exc:
             flash(f'Cookie 保存失败：{_exc}', 'danger')
     flash('设置已保存。', 'success')
-    return redirect(request.referrer or url_for('index'))
+    return redirect(_safe_referrer())
+
+
+def _safe_referrer():
+    """把 request.referrer 收敛成站内**路径**，认不出就回首页。
+
+    原来直接 `redirect(request.referrer)`：Referer 是客户端可伪造的请求头，
+    构造一个带外站 Referer 的表单提交，保存设置后就被跳到任意站点。这类
+    "开放重定向"本身危害有限，但常被用来把钓鱼页伪装成本工具的后续步骤——
+    用户看到域名换了，却以为还在同一流程里。
+
+    做法：只取 `path?query` 拼回站内，**绝不返回绝对 URL**。这样就不需要
+    和 Referer 里的 host 做任何比较，也就绕开了三个坑：
+
+        ① 伪造 Host。若拿 `parsed.netloc == request.host` 判定，而 Host 头
+           同样由客户端控制，同时伪造 Host 与 Referer 就能让等式成立。
+           路径方案根本不看 host，不参与判定。
+        ② 控制字符绕过。`/\\t/evil.com` 归一化后"以 / 开头、不以 // 开头"
+           会被放行，而 TAB 在写响应头时被剥掉，Location 变成 `//evil.com`，
+           浏览器按协议相对地址解析成外站。这里显式拒绝控制字符。
+        ③ 大小写与默认端口。`LOCALHOST:5000` vs `localhost:5000` 的字符串
+           不等会把合法跳转误判成外站，用户保存设置后莫名其妙回到首页。
+
+    站内跳转本来也只需要 path —— 页面永远在同一个 origin 下。
+    """
+    referrer = request.referrer or ''
+    if not referrer:
+        return url_for('index')
+
+    # 控制字符一律拒绝（含 TAB / CR / LF）。它们在响应头序列化时被剥离，
+    # 剥离后可能把 "/\t/evil.com" 变成 "//evil.com"。
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in referrer):
+        return url_for('index')
+
+    # 反斜杠在部分浏览器里等同斜杠，先归一，避免 `\\evil.com` 漏网
+    raw = referrer.replace('\\', '/')
+    parsed = urlparse(raw)
+
+    # 以 `//` 开头：协议相对地址，浏览器会当成外站。
+    # 这条必须先判，因为 `///evil.com` 会被 urlparse 解析成 host=""、
+    # path="/evil.com"，单看 path 是个合法站内路径，就漏过去了。
+    if raw.startswith('//'):
+        return url_for('index')
+
+    path = parsed.path or ''
+
+    # 解析出 host 的（绝对 URL）：只接受本站。这里用 netloc 比较是为了让
+    # 浏览器正常发送的 `http://host/page` 也能跳回去；判定失败时一律回首页，
+    # 不返回那个绝对地址——返回值永远是 path，host 不参与构造，所以即便
+    # Host 头被伪造，也不会把外站写进 Location。
+    if parsed.netloc and parsed.netloc != request.host:
+        return url_for('index')
+
+    if not path.startswith('/'):
+        return url_for('index')
+
+    return path + (f'?{parsed.query}' if parsed.query else '')
 
 
 @app.route('/history')
 def history():
+    # 快照读：直接遍历 job_results.values() 时，另一线程的裁剪会让这里抛
+    # `dictionary changed size during iteration`。而裁剪恰好发生在检索结束时，
+    # 正是用户点开 /history 的时刻。
     entries = sorted(
-        job_results.values(), key=lambda r: r.get('started_at', ''), reverse=True
+        (r for _, r in _snapshot_results()),
+        key=lambda r: r.get('started_at', ''),
+        reverse=True,
     )
     return render_template('history.html', entries=entries)
 
@@ -910,12 +1097,14 @@ def status(timestamp):
 
 @app.route('/results/<session_id>')
 def results(session_id):
-    # Find completed results that match this session_folder
+    # Find completed results that match this session_folder.
+    # 快照读：这里的 next(生成器) 会逐项推进迭代器，跨字节码——另一线程
+    # 裁剪时 pop 会让它抛 `dictionary changed size during iteration`。
     result_data = next(
         (
             r
-            for r in job_results.values()
-            if r.get('status') == 'completed' and r['session_folder'] == session_id
+            for _, r in _snapshot_results()
+            if r.get('status') == 'completed' and r.get('session_folder') == session_id
         ),
         None,
     )
@@ -962,6 +1151,7 @@ def cn_probe(job_id):
         return {'error': f'补检失败：{exc}'}, 502
 
     return {'ok': True, 'items': items, 'notes': notes}
+
 
 if __name__ == '__main__':
     logging.basicConfig(

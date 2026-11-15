@@ -16,7 +16,7 @@ import logging
 from typing import Any, Dict, List, Mapping, Optional
 from urllib.parse import urlparse
 
-from . import ACCOUNT_PLACEHOLDER, NOTE_UNVERIFIED, as_mapping, parse_form_body
+from . import NOTE_UNVERIFIED, as_mapping, parse_form_body
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@
     用户会看到大量"未判定"，反而以为工具坏了。
 
     所以默认只接管 `sites_cn.json` / `overrides.json` 里**人工策展过**的站点
-    （31 个）。上游站点的行为完全不变。这样做的两个好处：
+    （33 个）。上游站点的行为完全不变。这样做的两个好处：
       1. 出问题时 `MAIGRET_CN_VERDICT=0` 就能整体回退，不用改代码
       2. 可以按站点逐个验证，而不是一次押上全部
 
@@ -36,7 +36,7 @@ from .overlay import (
     deep_merge,
 )
 from .schema import SchemaError, validate_site
-from .verdict import Reason, Verdict, judge
+from .verdict import Reason, judge
 
 logger = logging.getLogger(__name__)
 

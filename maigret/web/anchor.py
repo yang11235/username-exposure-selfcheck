@@ -129,7 +129,12 @@ def score_accounts(anchor_site, accounts, username=None):
 
         # 简介
         if bios:
-            top = max((_jaccard(bio, x) for bio in _split_values(_pick(f, BIO_KEYS)) for x in bios), default=0)
+            candidates = [
+                _jaccard(bio, x)
+                for bio in _split_values(_pick(f, BIO_KEYS))
+                for x in bios
+            ]
+            top = max(candidates, default=0)
             if top >= 0.5:
                 score += 2.0
                 reasons.append("简介高度重合")
