@@ -4,7 +4,7 @@
 
 > 基于 [soxoj/maigret](https://github.com/soxoj/maigret) 的中文增强版。上游以 MIT 协议发布，本仓库保留原始 LICENSE 与版权声明。
 >
-> English: [README.en.md](README.en.md)（上游原文，保留备查）
+> 英文说明见上游 [soxoj/maigret](https://github.com/soxoj/maigret)：本仓库只维护中文说明，上游 README 覆盖安装步骤与全部命令行选项。
 
 本项目**只提供代码，不运营线上服务**。请在自己机器上部署使用。
 
