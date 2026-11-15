@@ -223,3 +223,52 @@ def to_cookiejar(cookies: List[Dict[str, Any]]):
             logger.debug("跳过一条无法装载的 Cookie（%s@%s）：%s", name, domain, exc)
 
     return jar
+
+
+def to_cookie_header_map(jar) -> Dict[str, List[str]]:
+    """把 CookieJar 摊平成 {域名: ["k=v", ...]}，供手工拼 Cookie 头的代码用。
+
+    为什么需要它：`to_cookiejar` 产出的是 aiohttp 的 CookieJar，交给
+    aiohttp 自己按域名注入就行。但补检（`web/cn_probe.py`）为了精确控制
+    每个平台用哪份 Cookie，是手工拼 `Cookie:` 头的——那里需要一个"查表"
+    形态，而不是 CookieJar。
+
+    域名**保留前导点**（`.baidu.com`）：调用方靠 `host.endswith("." + d)`
+    判断作用域，去掉点会让 `.baidu.com` 和 `baidu.com` 变成同一个键，
+    子域匹配的语义就丢了。
+    """
+    out: Dict[str, List[str]] = {}
+    if jar is None:
+        return out
+
+    try:
+        entries = list(jar)
+    except TypeError:
+        return out
+
+    for cookie in entries:
+        try:
+            # 两种形态都要认，因为两边都会传进来：
+            #   http.cookies.Morsel      —— aiohttp.CookieJar 迭代出来的（主路径）
+            #   http.cookiejar.Cookie    —— 标准库 CookieJar（测试、或调用方自建）
+            # Morsel 的 cookie 名字在 `.key`，不在 `.get('name')`——后者只查
+            # 属性字典（domain/path/expires...），名字不在里面，永远返回 None，
+            # 于是整批 cookie 一条都映射不出来（实测：103 条覆盖 0 个域名）。
+            name = getattr(cookie, "key", None) or getattr(cookie, "name", None)
+            if name is None and hasattr(cookie, "get"):
+                name = cookie.get("name")
+            value = getattr(cookie, "value", None)
+            if value is None and hasattr(cookie, "get"):
+                value = cookie.get("value")
+            domain = getattr(cookie, "domain", None)
+            if domain is None and hasattr(cookie, "get"):
+                domain = cookie.get("domain")
+        except Exception:  # pragma: no cover - 坏 cookie 不该毁掉整批
+            continue
+        name = str(name or "").strip()
+        domain = str(domain or "").strip()
+        if not name or not domain:
+            continue
+        out.setdefault(domain, []).append(f"{name}={value or ''}")
+
+    return out

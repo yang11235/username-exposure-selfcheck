@@ -315,6 +315,27 @@ def setup_logger(log_level, name):
     return logger
 
 
+async def _load_browser_jar():
+    """从本机 Chrome 取 Cookie，返回 CookieJar；取不到返回 None。
+
+    单独抽出来是因为有两个调用方：检索（经 resolve_cookie_source）和
+    中文补检（直接要一份 jar 手工拼 Cookie 头）。抽出来之前，补检那条
+    链路只读 cookies.txt，浏览器里明明登录着也看不见。
+
+    失败一律返回 None 不抛：调试端口没开是最常见的情况（默认就没开），
+    为它中断补检等于把"可选增强"变成"硬前置"。
+    """
+    try:
+        from maigret.cn import browser_cookies
+
+        raw = await browser_cookies.collect()
+        if raw:
+            return browser_cookies.to_cookiejar(raw)
+    except Exception as exc:  # noqa: BLE001 - 见 docstring
+        logging.warning("读取本机浏览器 Cookie 失败，本次不使用：%s", exc)
+    return None
+
+
 async def resolve_cookie_source(options, logger):
     """决定这次检索用哪个 Cookie 来源。
 
@@ -331,20 +352,11 @@ async def resolve_cookie_source(options, logger):
     为它中断整次检索等于把"可选增强"变成了"硬前置"。
     """
     if options.get('use_browser_cookies'):
-        try:
-            from maigret.cn import browser_cookies
-
-            raw = await browser_cookies.collect()
-            if raw:
-                logger.info(
-                    "已从本机浏览器载入 %d 条 Cookie（覆盖 %d 个域名）",
-                    len(raw),
-                    len(browser_cookies.summarize(raw)),
-                )
-                return browser_cookies.to_cookiejar(raw)
-            logger.warning("本机浏览器里没有可用的 Cookie，本次不带 Cookie")
-        except Exception as exc:
-            logger.warning("读取本机浏览器 Cookie 失败，本次不使用：%s", exc)
+        jar = await _load_browser_jar()
+        if jar is not None:
+            logger.info("已从本机浏览器载入 Cookie（内存直用，未落盘）")
+            return jar
+        logger.warning("本机浏览器里没有可用的 Cookie，本次不带 Cookie")
 
     if options.get('use_cookies'):
         return app.config["COOKIES_FILE"]
@@ -1145,7 +1157,13 @@ def cn_probe(job_id):
 
     usernames = result.get('usernames') or []
     try:
-        items, notes = asyncio.run(probe_platforms(usernames))
+        # 和检索共用同一个 Cookie 来源：用户在设置里勾了"从浏览器读取"时，
+        # 补检也要用那份，否则会出现"检索带上了 Cookie、补检却说需要登录"。
+        browser_jar = None
+        if _as_bool(load_settings().get('use_browser_cookies')):
+            browser_jar = asyncio.run(_load_browser_jar())
+
+        items, notes = asyncio.run(probe_platforms(usernames, browser_jar))
     except Exception as exc:
         logging.error(f'CN probe failed for {job_id}: {exc}')
         return {'error': f'补检失败：{exc}'}, 502

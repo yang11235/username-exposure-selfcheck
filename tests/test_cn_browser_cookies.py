@@ -151,3 +151,62 @@ def test_summarize_limit_truncates():
     raw = [{"name": f"n{i}", "value": "v", "domain": f"d{i}.com"} for i in range(5)]
 
     assert len(bc.summarize(raw, limit=2)) == 2
+
+
+# ---------------------------------------------------------------------------
+# to_cookie_header_map
+# ---------------------------------------------------------------------------
+def _jar_with(entries):
+    """造一个 CookieJar，entries 是 [(domain, name, value), ...]。
+
+    用标准库的 `http.cookiejar.CookieJar` 而不是 aiohttp 那个：
+    aiohttp 的 CookieJar 要求先有事件循环，在同步测试里造不出来。
+    `to_cookie_header_map` 只依赖"能迭代出 Morsel"这一条，两者都满足。
+    """
+    from http.cookiejar import Cookie, CookieJar
+
+    jar = CookieJar()
+    for domain, name, value in entries:
+        jar.set_cookie(Cookie(
+            version=0, name=name, value=value,
+            port=None, port_specified=False,
+            domain=domain, domain_specified=True, domain_initial_dot=domain.startswith('.'),
+            path='/', path_specified=True,
+            secure=False, expires=None, discard=True,
+            comment=None, comment_url=None, rest={},
+        ))
+    return jar
+
+
+def test_header_map_reads_the_morsel_key_not_the_name_attribute():
+    """Morsel 的 cookie 名字在 `.key`，不在 `.get('name')`。
+
+    踩过：按 `.get('name')` 取会永远拿到 None（名字不在属性字典里），
+    于是整批 cookie 一条都映射不出来——表现是"读到 103 条、覆盖 0 个域名"。
+    """
+    from maigret.cn.browser_cookies import to_cookie_header_map
+
+    jar = _jar_with([('tieba.baidu.com', 'XFI', 'abc123')])
+    mapping = to_cookie_header_map(jar)
+
+    assert mapping == {'tieba.baidu.com': ['XFI=abc123']}
+
+
+def test_header_map_keeps_the_leading_dot_for_scope():
+    """前导点必须保留：调用方靠 `host.endswith('.' + d)` 判作用域。
+
+    去掉点会让 `.baidu.com` 和 `baidu.com` 变成同一个键，
+    `tieba.baidu.com` 就收不到本该收到的 cookie。
+    """
+    from maigret.cn.browser_cookies import to_cookie_header_map
+
+    jar = _jar_with([('.baidu.com', 'BAIDUID', 'x')])
+    mapping = to_cookie_header_map(jar)
+
+    assert '.baidu.com' in mapping
+
+
+def test_header_map_of_none_is_empty():
+    from maigret.cn.browser_cookies import to_cookie_header_map
+
+    assert to_cookie_header_map(None) == {}

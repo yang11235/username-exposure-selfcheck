@@ -1,13 +1,17 @@
 """中文平台补检。
 
-思路：小红书 / 抖音 / 快手 / 贴吧这些站没有「用户名 → 个人主页」的固定路径，
-拼 URL 只能得到 SPA 外壳或 403。所以不拼路径，改走站内搜索接口，把用户名
-当关键词搜，再按同名程度给出置信度。
+只覆盖**快速检索覆盖不到**的平台。这一点很重要：贴吧、B 站搜索已经并进
+`sites_cn.json`，走四字段判定（贴吧用匿名可用的 `home/get/panel`），
+不该在这里重复一遍。
 
 能用的情况：
   B 站   —— 公开搜索接口，先用首页拿 buvid 再查，无需登录
   微博   —— s.weibo.com/user，必须有 weibo.com 的登录 Cookie
-  贴吧   —— f/search/res，必须有 tieba.baidu.com 的登录 Cookie
+
+历史说明：这里曾有一条 `probe_tieba`，走 `f/search/res` 做"谁发帖提过这个
+词"的全站搜索。它和贴吧账号判定是两件不同的事，且必须登录才能用；
+2026-11-15 起贴吧账号改为匿名可判的四字段规则，那条搜索路径被删除——
+它只会错误地提示"贴吧需要登录 Cookie"，而实际上快速检索早就查过了。
 
 结果只是线索，不是「已确认账号」——同名不等于同一人。
 """
@@ -22,15 +26,32 @@ UA = (
 TIMEOUT = aiohttp.ClientTimeout(total=25)
 
 
-def _cookie_map():
-    """读 ~/.maigret/cookies.txt，返回 {域名: ["k=v", ...]}。"""
+def _cookie_map(browser_jar=None):
+    """返回 {域名: ["k=v", ...]}，浏览器来源优先于 cookies.txt。
+
+    两个来源的优先级和 `resolve_cookie_source` 的口径一致：浏览器里的是
+    "当前"的，cookies.txt 是手动快照。浏览器有就用浏览器的，没有才读文件。
+
+    为什么要合并而不是二选一：补检要访问多个域名（微博 + B 站），可能
+    浏览器里只有其中一个的登录态、另一个在 cookies.txt 里。按域名逐条
+    叠加能同时用上两边的。
+    """
+    out = {}
+
+    # 先放 cookies.txt 的，浏览器来源后写会覆盖同名域
     from .cookie_store import _rows  # 复用同一份解析，避免两套逻辑
 
-    out = {}
     for row in _rows():
         parts = row.split("\t")
         domain = parts[0].lstrip(".")
         out.setdefault(domain, []).append(f"{parts[5]}={parts[6]}")
+
+    if browser_jar is not None:
+        from maigret.cn.browser_cookies import to_cookie_header_map
+
+        for domain, pairs in to_cookie_header_map(browser_jar).items():
+            out[domain.lstrip(".")] = pairs
+
     return out
 
 
@@ -139,42 +160,21 @@ async def probe_weibo(session, username, jar):
     return items, "" if items else "微博没有搜到同名用户"
 
 
-async def probe_tieba(session, username, jar):
-    cookie = _cookie_header(jar, "tieba.baidu.com")
-    if not cookie:
-        return [], "贴吧需要登录 Cookie（在设置里粘贴 tieba.baidu.com 的 Cookie）"
-
-    async with session.get(
-        "https://tieba.baidu.com/f/search/res",
-        params={"qw": username, "ie": "utf-8"},
-        headers={"User-Agent": UA, "Cookie": cookie},
-    ) as resp:
-        if resp.status != 200:
-            return [], f"贴吧 HTTP {resp.status}（Cookie 可能已过期）"
-        html = await resp.text()
-
-    items = []
-    for name in re.findall(r'class="p_author_name"[^>]*>([^<]+)<', html):
-        name = name.strip()
-        if name and name != "匿名用户":
-            items.append(
-                {
-                    "platform": "贴吧",
-                    "name": name,
-                    "url": f"https://tieba.baidu.com/home/main?un={name}",
-                    "confidence": _grade(name, username),
-                    "extra": "",
-                }
-            )
-    return items, "" if items else "贴吧没有搜到相关发言"
+PROBES = (probe_bilibili, probe_weibo)
 
 
-PROBES = (probe_bilibili, probe_weibo, probe_tieba)
+async def probe_platforms(usernames, browser_jar=None):
+    """对所有用户名跑一遍补检，返回 (items, notes)。
 
+    `browser_jar` 是从本机 Chrome 取到的 CookieJar（cdp，内存直用）。
+    传进来时必须优先于 cookies.txt：用户在设置里勾了"从浏览器读取"，
+    那份是最新的，而 cookies.txt 是某天手动粘进去的快照。
 
-async def probe_platforms(usernames):
-    """对所有用户名跑一遍补检，返回 (items, notes)。"""
-    jar = _cookie_map()
+    原来这里只读 cookies.txt，于是出现了「设置里勾了浏览器 Cookie、
+    /api/browser-cookies 也显示检测到 103 条，补检却说需要登录」的矛盾——
+    两条链路各自读各自的来源，谁也看不到对方。
+    """
+    jar = _cookie_map(browser_jar)
     items, notes = [], []
 
     async with aiohttp.ClientSession(timeout=TIMEOUT) as session:

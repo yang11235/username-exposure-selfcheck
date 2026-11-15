@@ -1542,3 +1542,64 @@ def test_parse_search_options_honours_string_false(web_app, tmp_path):
 
     assert options['use_cookies'] is False
     assert options['use_browser_cookies'] is False
+
+
+# ---------------------------------------------------------------------------
+# 中文补检：不要重复快速检索已经覆盖的站
+# ---------------------------------------------------------------------------
+def test_cn_probe_no_longer_asks_for_tieba_cookie(web_app):
+    """贴吧在快速检索里就能匿名判定，补检不该再要登录 Cookie。
+
+    历史问题：补检里有一条 `probe_tieba` 走 `f/search/res`（"谁发帖提过
+    这个词"的全站搜索），必须登录；而贴吧账号判定走的是
+    `home/get/panel`，匿名即可。两条路径混在一起，导致用户明明能查到
+    贴吧账号，补检却提示"贴吧需要登录 Cookie"，看起来像功能坏了。
+    """
+    from maigret.web import cn_probe
+
+    assert not hasattr(cn_probe, 'probe_tieba'), 'probe_tieba 应该已经删除'
+    names = [p.__name__ for p in cn_probe.PROBES]
+    assert 'probe_tieba' not in names
+    assert names == ['probe_bilibili', 'probe_weibo']
+
+
+def test_cn_probe_reads_browser_cookies(web_app):
+    """补检必须看得到从浏览器读到的 Cookie。
+
+    踩过：补检只读 cookies.txt，于是"设置里勾了浏览器 Cookie、
+    /api/browser-cookies 显示检测到 103 条、补检却说需要登录"——
+    两条链路各读各的来源，谁也看不见对方。
+    """
+    from http.cookiejar import Cookie, CookieJar
+
+    from maigret.web import cn_probe
+
+    jar = CookieJar()
+    jar.set_cookie(Cookie(
+        version=0, name='SUB', value='weibo-session',
+        port=None, port_specified=False,
+        domain='.weibo.com', domain_specified=True, domain_initial_dot=True,
+        path='/', path_specified=True,
+        secure=False, expires=None, discard=True,
+        comment=None, comment_url=None, rest={},
+    ))
+
+    mapping = cn_probe._cookie_map(jar)
+
+    assert 'weibo.com' in mapping
+    assert 'SUB=weibo-session' in mapping['weibo.com']
+
+
+def test_cookie_header_matches_subdomains(web_app):
+    """`.weibo.com` 的 cookie 要能被 `s.weibo.com` 用上。
+
+    `_cookie_header` 靠 endswith 判作用域，所以 map 里的域名必须去掉
+    前导点后再比较——这一步错了，Cookie 读到了也发不出去。
+    """
+    from maigret.web import cn_probe
+
+    jar = {'weibo.com': ['SUB=x'], 'baidu.com': ['BAIDUID=y']}
+
+    assert cn_probe._cookie_header(jar, 's.weibo.com') == 'SUB=x'
+    assert cn_probe._cookie_header(jar, 'weibo.com') == 'SUB=x'
+    assert cn_probe._cookie_header(jar, 'example.com') == ''
