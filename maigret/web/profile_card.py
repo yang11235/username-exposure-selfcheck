@@ -34,6 +34,7 @@ FIELD_LABELS = {
     "followers": "粉丝数",
     "follower_count": "粉丝数",
     "following_count": "关注数",
+    "account_age": "账号年龄",
     "reputation": "声望",
 }
 

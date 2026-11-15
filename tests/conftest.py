@@ -116,3 +116,31 @@ async def cookie_test_server():
     await server.start()
     yield server
     await runner.cleanup()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _never_touch_real_browser():
+    """测试期间禁用浏览器执行器（MAIGRET_CN_BROWSER=0）。
+
+    两个理由，都不是洁癖：
+
+    1. **测试绝不能动用户的浏览器。** 开发机上常常正开着一个带
+       `--remote-debugging-port` 的 Chrome。一旦某条用例走到
+       "HTTP 被判拦截 → 升级到浏览器重试"，就会在用户屏幕上真的打开标签页，
+       还会把本地测试服务器的地址写进浏览历史和 DNS 缓存。
+    2. **真实导航会让测试随机挂起。** 每次导航要等 load 事件 + 800ms 静置，
+       最坏 30s 超时；命中几条用例就足以让整套测试从 20 秒变成几分钟。
+
+    需要覆盖浏览器路径的用例（tests/test_cn_browser.py）自己 monkeypatch
+    `browser_available` / `fetch_with_browser`，不依赖这个开关；
+    验证环境变量语义的用例自己 setenv，也不受影响。
+    """
+    previous = os.environ.get("MAIGRET_CN_BROWSER")
+    os.environ["MAIGRET_CN_BROWSER"] = "0"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("MAIGRET_CN_BROWSER", None)
+        else:
+            os.environ["MAIGRET_CN_BROWSER"] = previous

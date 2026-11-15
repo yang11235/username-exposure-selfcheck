@@ -157,6 +157,9 @@ DEFAULT_SETTINGS = {
     'disable_extracting': False,
     'with_domains': False,
     'use_cookies': False,
+    # 从本机已登录的 Chrome 取 Cookie（CDP）。和 use_cookies 是两种来源，
+    # 同时打开时以浏览器为准 —— 浏览器里的那份永远是"当前"的。
+    'use_browser_cookies': False,
 }
 
 
@@ -202,6 +205,7 @@ def parse_settings_form(form):
         'disable_extracting': 'disable_extracting' in form,
         'with_domains': 'with_domains' in form,
         'use_cookies': 'use_cookies' in form,
+        'use_browser_cookies': 'use_browser_cookies' in form,
     }
 
 
@@ -214,6 +218,42 @@ def setup_logger(log_level, name):
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
     return logger
+
+
+async def resolve_cookie_source(options, logger):
+    """决定这次检索用哪个 Cookie 来源。
+
+    两种来源：
+        use_browser_cookies  从本机已登录的 Chrome 取（CDP，内存直用、不落盘）
+        use_cookies          读 ~/.maigret/cookies.txt
+
+    浏览器优先：那份永远是"当前"的，而 cookies.txt 是某天手动粘进去的快照。
+    浏览器取不到时**退回** cookies.txt（如果也勾了），再取不到就不带 Cookie
+    继续跑 —— 和 `load_cookie_jar` 的降级口径一致：Cookie 只提高成功率，
+    不该因为拿不到就让整次检索一个站点都不查。
+
+    为什么失败只 warning 不抛：调试端口没开是最常见的情况（默认就没开），
+    为它中断整次检索等于把"可选增强"变成了"硬前置"。
+    """
+    if options.get('use_browser_cookies'):
+        try:
+            from maigret.cn import browser_cookies
+
+            raw = await browser_cookies.collect()
+            if raw:
+                logger.info(
+                    "已从本机浏览器载入 %d 条 Cookie（覆盖 %d 个域名）",
+                    len(raw),
+                    len(browser_cookies.summarize(raw)),
+                )
+                return browser_cookies.to_cookiejar(raw)
+            logger.warning("本机浏览器里没有可用的 Cookie，本次不带 Cookie")
+        except Exception as exc:
+            logger.warning("读取本机浏览器 Cookie 失败，本次不使用：%s", exc)
+
+    if options.get('use_cookies'):
+        return app.config["COOKIES_FILE"]
+    return None
 
 
 async def maigret_search(username, options, query_notify=None):
@@ -234,6 +274,13 @@ async def maigret_search(username, options, query_notify=None):
 
         db = MaigretDatabase().load_from_path(app.config["MAIGRET_DB_FILE"])
 
+        # cn overlay 与 CLI 走同一条装配路径，否则 Web 端的"快速检索"会是
+        # 一个只有 6 个中文站的子集，而命令行里同样是 500 站却含 20 个中文站——
+        # 同一个开关在两个入口给出不同结果，用户只会认为工具坏了。
+        from maigret.cn.hook import augment_sites, register_overlay_sites
+
+        register_overlay_sites(db)
+
         top_sites = int(options.get('top_sites') or 500)
         if options.get('all_sites'):
             top_sites = 999999999  # effectively all
@@ -252,6 +299,11 @@ async def maigret_search(username, options, query_notify=None):
             id_type='username',
         )
 
+        if not site_list:
+            sites = augment_sites(
+                sites, db, 'username', tags=tags, excluded_tags=excluded_tags
+            )
+
         logger.info(f"Found {len(sites)} sites matching the tag criteria")
 
         if query_notify is not None and hasattr(query_notify, 'set_total'):
@@ -267,7 +319,7 @@ async def maigret_search(username, options, query_notify=None):
             id_type='username',
             query_notify=query_notify,
             no_progressbar=bool(query_notify),
-            cookies=app.config["COOKIES_FILE"] if options.get('use_cookies') else None,
+            cookies=await resolve_cookie_source(options, logger),
             is_parsing_enabled=(not options.get('disable_extracting', False)),
             recursive_search_enabled=(
                 not options.get('disable_recursive_search', False)
@@ -286,12 +338,20 @@ async def maigret_search(username, options, query_notify=None):
 
 async def search_multiple_usernames(usernames, options):
     results = []
+    errors = []
     for username in usernames:
         try:
             search_results = await maigret_search(username.strip(), options)
             results.append((username.strip(), 'username', search_results))
         except Exception as e:
             logging.error(f"Error searching username {username}: {str(e)}")
+            errors.append(f"{username}: {e}")
+
+    # 全部用户名都失败时把错误抛上去。否则 build_reports 收到空列表，用户看到的是
+    # 一个"已完成但 0 命中"的结果页 —— 和"这人确实没有账号"长得一模一样，
+    # 而这正是最不该混淆的两件事。部分失败则保留成功的那几个，继续出报告。
+    if not results and errors:
+        raise RuntimeError('；'.join(errors[:3]))
     return results
 
 
@@ -303,6 +363,22 @@ def sanitize_username_for_path(username: str) -> str:
     sanitized = sanitized.strip('.')
     # If empty after sanitization, use a fallback
     return sanitized or '_'
+
+
+def _cn_clusters(results) -> list:
+    """跨站身份归并，整理成模板能直接渲染的结构。
+
+    失败一律返回空列表：聚类是锦上添花，一次 numpy/Pillow 缺失不该让整个
+    结果页 500。与证据抽取、头像抓取的处理方式保持一致。
+    """
+    try:
+        from maigret.cn.identity import cluster, describe
+        from maigret.cn.report import build_accounts
+
+        return describe(cluster(build_accounts(results)))
+    except Exception as exc:  # noqa: BLE001 — 降级为空，不打断报告
+        logging.warning(f"身份归并失败，本次不展示身份簇：{exc}")
+        return []
 
 
 def build_reports(general_results, usernames, session_key):
@@ -326,6 +402,15 @@ def build_reports(general_results, usernames, session_key):
 
     individual_reports = []
     found_count = 0
+    # AI 摘要吃的是**整次检索**的上下文，不是最后一个用户名的画像：
+    # 多用户名时只喂最后一个人，摘要会漏掉其他用户名。
+    # 一条结果都没有时留空串，`/api/ai` 会据此回"没有可分析的结果"。
+    ai_input = ''
+    if general_results:
+        ai_input = maigret.report.generate_markdown_report(
+            generate_report_context(general_results)
+        )
+
     for username, id_type, results in general_results:
         safe_username = sanitize_username_for_path(username)
         report_base = os.path.join(session_folder, f"report_{safe_username}")
@@ -375,6 +460,7 @@ def build_reports(general_results, usernames, session_key):
                 'html_file': f"search_{session_key}/report_{safe_username}.html",
                 'claimed_profiles': claimed_profiles,
                 'profile': build_profile(username, results, brief=context.get('brief', '')),
+                'clusters': _cn_clusters(results),
             }
         )
 
@@ -382,7 +468,7 @@ def build_reports(general_results, usernames, session_key):
         'status': 'completed',
         'session_folder': f"search_{session_key}",
         'graph_file': f"search_{session_key}/combined_graph.html",
-        'ai_input': maigret.report.generate_markdown_report(context),
+        'ai_input': ai_input,
         'usernames': usernames,
         'individual_reports': individual_reports,
         'found_count': found_count,
@@ -671,6 +757,40 @@ def api_sites():
         if site.url_main and site.url_main not in site_options:
             site_options.append(site.url_main)
     return {'sites': sorted(set(site_options))}
+
+
+@app.route('/api/browser-cookies')
+def api_browser_cookies():
+    """探测本机浏览器里的登录态，供设置页显示"能不能自动读"。
+
+    只返回域名和条数，**永远不返回值**：这个接口的输出会进页面，
+    Cookie 值进页面就等于进了浏览器历史、缓存、截图。
+    """
+    from maigret.cn import browser_cookies
+
+    try:
+        info = asyncio.run(browser_cookies.browser_info())
+    except browser_cookies.BrowserCookieError as exc:
+        return {'available': False, 'reason': str(exc)}, 200
+
+    if not info:
+        return {
+            'available': False,
+            'reason': '没检测到调试端口。用 --remote-debugging-port=9222 启动 Chrome 后重试',
+            'port': browser_cookies.cdp_port(),
+        }, 200
+
+    try:
+        raw = asyncio.run(browser_cookies.collect())
+    except Exception as exc:
+        return {'available': False, 'browser': info.get('Browser'), 'reason': str(exc)}, 200
+
+    return {
+        'available': True,
+        'browser': info.get('Browser'),
+        'total': len(raw),
+        'domains': browser_cookies.summarize(raw, limit=20),
+    }, 200
 
 
 @app.route('/settings', methods=['POST'])

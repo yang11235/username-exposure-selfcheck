@@ -278,6 +278,15 @@
 
                                                 <h6>登录 Cookie（可选）</h6>
                         <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="settings-use_browser_cookies"
+                                name="use_browser_cookies" {{ 'checked' if web_settings.use_browser_cookies }}>
+                            <label class="form-check-label" for="settings-use_browser_cookies">自动读取本机 Chrome 的登录态（仅本次检索，不落盘）</label>
+                            <div class="form-text">
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0" id="btn-detect-browser-cookies">检测</button>
+                                <span id="browser-cookie-status" class="ms-2">需要 Chrome 以 <code>--remote-debugging-port=9222</code> 启动</span>
+                            </div>
+                        </div>
+                        <div class="mb-3 form-check">
                             <input type="checkbox" class="form-check-input" id="settings-use_cookies"
                                 name="use_cookies" {{ 'checked' if web_settings.use_cookies }}>
                             <label class="form-check-label" for="settings-use_cookies">检索时携带 Cookie（微博、贴吧等站点需要）</label>
@@ -627,6 +636,34 @@
                         });
                     });
             });
+
+            // 「检测」按钮：只显示域名和条数，永远不显示 Cookie 值。
+            (function () {
+                const btn = document.getElementById('btn-detect-browser-cookies');
+                const status = document.getElementById('browser-cookie-status');
+                if (!btn || !status) return;
+                btn.addEventListener('click', function () {
+                    status.textContent = '检测中…';
+                    status.className = 'ms-2 text-muted';
+                    fetch("{{ url_for('api_browser_cookies') }}")
+                        .then(r => r.json())
+                        .then(data => {
+                            if (!data.available) {
+                                status.textContent = data.reason || '不可用';
+                                status.className = 'ms-2 text-danger';
+                                return;
+                            }
+                            const domains = Object.keys(data.domains || {});
+                            const top = domains.slice(0, 6).join('、');
+                            status.textContent = `${data.browser}：${data.total} 条，覆盖 ${domains.length} 个域名（${top}${domains.length > 6 ? '…' : ''}）`;
+                            status.className = 'ms-2 text-success';
+                        })
+                        .catch(err => {
+                            status.textContent = '检测失败：' + err;
+                            status.className = 'ms-2 text-danger';
+                        });
+                });
+            })();
 
             siteInput.addEventListener('change', function () {
                 const value = this.value.trim();

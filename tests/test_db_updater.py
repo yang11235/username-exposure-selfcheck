@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
 
 import pytest
+from pathlib import Path
 import requests
 
 from maigret.db_updater import (
@@ -136,7 +137,9 @@ def test_resolve_db_path_custom_file(tmp_path):
     custom_db.parent.mkdir(parents=True)
     custom_db.write_text("{}")
     result = resolve_db_path(str(custom_db))
-    assert result.endswith("custom/path.json")
+    # 不要用 endswith("custom/path.json")：Windows 上拼出来的是
+    # "custom\\path.json"，这个断言在那边永远不成立。比路径本身才和平台无关。
+    assert Path(result) == custom_db
 
 
 def test_resolve_db_path_no_autoupdate(tmp_path):

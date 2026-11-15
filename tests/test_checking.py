@@ -1,8 +1,10 @@
 import asyncio
+import os
 import re
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 from argparse import ArgumentTypeError
 
 from unittest.mock import AsyncMock, Mock, patch
@@ -23,6 +25,7 @@ from maigret.checking import (
     process_site_result,
     check_site_for_username,
     make_site_result,
+    load_cookie_jar,
     run_url_mutations,
     _canonical_url,
     _domain_tail,
@@ -34,6 +37,23 @@ from maigret.error_detection import detect_error_page
 from maigret.errors import CheckError
 from maigret.result import MaigretCheckResult, MaigretCheckStatus
 from maigret.sites import MaigretSite
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _probe_env():
+    """子进程探针的导入环境。
+
+    探针在 tmp_path 里运行，`sys.path[0]` 是那个临时目录，所以 `import maigret`
+    只有在包被 pip 安装过时才成功。CI 里是 `pip install -e .`，但开发者本地
+    直接跑 pytest 时往往没装——于是这两条测试会因为环境而不是代码失败。
+    显式把仓库根塞进 PYTHONPATH，两种情况都能跑。
+    """
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(ROOT) + ((os.pathsep + existing) if existing else "")
+    return env
 
 
 def site_result_except(server, username, **kwargs):
@@ -388,6 +408,7 @@ def test_debug_response_logging_writes_non_ascii_page(tmp_path):
             str(probe),
         ],
         cwd=str(tmp_path),
+        env=_probe_env(),
         capture_output=True,
         encoding="utf-8",
         errors="replace",
@@ -2320,3 +2341,81 @@ def test_nested_request_payload_reaches_checker_with_username():
     assert checker.payloads_seen == [
         {"pointer": {"type": "URL", "value": "http://localhost:8989/alice"}}
     ]
+
+
+# ---------------------------------------------------------------------------
+# cookie jar：文件不在时降级，不要炸掉整次检索
+# ---------------------------------------------------------------------------
+def test_load_cookie_jar_returns_none_for_a_missing_file(tmp_path):
+    """勾了"使用 cookies"但文件不在，是配置问题，不是致命错误。
+
+    真实故障（2026-11-15）：Web 设置里 use_cookies=true 而 cookies.txt 不存在，
+    这行在发出第一个请求之前抛 FileNotFoundError，整次检索一个站点都没查就死掉，
+    界面上只显示"检索失败：No such file or directory"。
+    """
+    logger = Mock()
+
+    assert load_cookie_jar(str(tmp_path / 'nope.txt'), logger) is None
+    logger.warning.assert_called_once()
+
+
+def test_load_cookie_jar_skips_the_work_when_cookies_are_off():
+    logger = Mock()
+
+    assert load_cookie_jar(None, logger) is None
+    assert load_cookie_jar('', logger) is None
+    logger.warning.assert_not_called()
+
+
+def test_load_cookie_jar_reads_an_existing_file():
+    """文件在的时候行为不变：真的去解析。
+
+    `aiohttp.CookieJar()` 要一个运行中的事件循环，所以这里得在协程里调——
+    真实调用点（`maigret.search`）本来就跑在 asyncio 里。
+    """
+    path = Path(__file__).resolve().parent.parent / 'cookies_test.txt'
+    if not path.exists():
+        pytest.skip('仓库里没有 cookies_test.txt')
+
+    async def load():
+        return load_cookie_jar(str(path), Mock())
+
+    assert asyncio.run(load()) is not None
+
+
+def test_load_cookie_jar_passes_an_already_built_jar_through():
+    """从本机浏览器取的 Cookie 是内存直用的，必须能直接透传。
+
+    为什么不能逼调用方先写一个临时文件：那等于把用户的全站登录态落到磁盘上，
+    而"不落盘"正是 `cn/browser_cookies.py` 的设计前提。下游 `MairetChecker`
+    只认 CookieJar，所以在这一层做类型分流。
+
+    同时守住"不要拿 jar 去 os.path.exists"：那会抛 TypeError。
+    """
+    import aiohttp
+
+    async def build():
+        jar = aiohttp.CookieJar(unsafe=False)
+        assert load_cookie_jar(jar, Mock()) is jar
+        return True
+
+    assert asyncio.run(build()) is True
+
+
+def test_load_cookie_jar_passes_an_already_built_jar_through():
+    """从本机浏览器取的 Cookie 是内存直用的，必须能直接透传。
+
+    为什么不能逼调用方先写一个临时文件：那等于把用户的全站登录态落到磁盘上，
+    而"不落盘"正是 `cn/browser_cookies.py` 的设计前提。下游 `MairetChecker`
+    只认 CookieJar，所以在这一层做类型分流。
+
+    同时守住"不要拿 jar 去 os.path.exists"：那会抛 TypeError。
+    """
+    import aiohttp
+
+    async def build():
+        jar = aiohttp.CookieJar(unsafe=False)
+        assert load_cookie_jar(jar, Mock()) is jar
+        return True
+
+    assert asyncio.run(build()) is True

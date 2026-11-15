@@ -21,6 +21,7 @@ from tests.conftest import RESULTS_EXAMPLE
 
 @pytest.mark.slow
 @pytest.mark.asyncio
+@pytest.mark.slow
 async def test_self_check_db(test_db):
     # initalize logger to debug
     logger = Mock()
@@ -349,7 +350,23 @@ def test_main_entrypoint_handles_top_level_keyboard_interrupt_cleanly():
     assert "KeyboardInterrupt" not in result.stderr
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+def _posix_permissions_apply() -> bool:
+    """这个用例靠 POSIX 权限位让写入失败，Windows 上做不到。
+
+    `os.geteuid` 在 Windows 上根本不存在，原来直接写在装饰器里会让整个
+    模块**收集阶段**就抛 AttributeError——测试套件在 Windows 上一行都跑不了。
+    用 getattr 兜底，并且明确在 Windows 上跳过：`chmod(0o555)` 在 Windows
+    上只改文件的只读属性，对目录无效，写进去照样成功。
+    """
+    if os.name == "nt":
+        return False
+    return getattr(os, "geteuid", lambda: 1)() != 0
+
+
+@pytest.mark.skipif(
+    not _posix_permissions_apply(),
+    reason="root ignores file permissions; Windows does not enforce them",
+)
 def test_save_db_safely_returns_false_on_readonly_target(default_db, tmp_path):
     """A read-only install must not take down a run that already finished.
 

@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "overrides.json —— 中间层补丁，合并优先级：sites_cn.json > overrides.json > 上游 data.json。",
+    "",
+    "用途：只改上游某条规则的**错误部分**，而不复制整条规则。这样上游一升级，",
+    "没被改的字段（urlMain / headers / known / alexaRank…）自动跟着更新。",
+    "",
+    "格式：{\"sites\": {\"<上游站点 key>\": {<要覆盖的字段>}}}",
+    "  - 可以写上游风格（checkType / presenseStrs / absenceStrs），",
+    "    也可以直接写 v2 风格（e_code / e_string / uri_check / uri_pretty…），两种都生效；",
+    "  - 合并是**逐站深合并**：只写一个 e_string，不会把整条规则冲掉；",
+    "  - 值为 null 表示**删除**该键（RFC 7386 JSON Merge Patch 语义），用于清掉上游的有害字段；",
+    "  - 以 _ 开头的键（_note）只是注释，adapter 会忽略；",
+    "  - 注意：本层作用于**整个上游站点库**，不限于中国站。",
+    "",
+    "写进来的每条都必须有可核对的依据（上游自带的数据、或 --dump-response 实测），",
+    "不接受\"我觉得应该是这样\"。"
+  ],
+  "sites": {
+    "Disqus": {
+      "checkType": "message",
+      "_note": "修正 checkType。上游把它标成 status_code，但同时又自带成对的 presenseStrs / absenceStrs（'https://disqus.com/api/users/' 与 'User matching query does not exist'）—— 说明状态码本来分不开，字符串才是判据，标 status_code 等于把已有的证据丢掉。改成 message 后 e_code=m_code=200，用上游自带的两个串判定，规则值一个字都没编。"
+    },
+    "Weibo": {
+      "headers": {
+        "Cookie": null
+      },
+      "_note": "删除上游 headers 里硬编码的微博 Cookie（SUB=...，早已失效）。带着过期登录态请求只会更容易触发风控，且把别人的会话凭据当公共配置分发本身就不合适。User-Agent / Referer 保留（deep merge 只删这一个键）。需要登录态时应由使用者自己提供，不入库。"
+    }
+  }
+}

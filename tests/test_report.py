@@ -8,6 +8,7 @@ import subprocess
 import sys
 import textwrap
 import zipfile
+from pathlib import Path
 import pytest
 from io import StringIO
 from xml.etree import ElementTree
@@ -38,6 +39,7 @@ from maigret.report import (
     _graph_to_cypher,
     _is_safe_report_image_url,
     _pdf_report_link_callback,
+    make_pdf_link_callback,
     _BLANK_IMAGE_PATH,
     _normalize_xmind_archive,
     save_graph_report,
@@ -45,6 +47,21 @@ from maigret.report import (
 from maigret.errors import CheckError
 from maigret.result import MaigretCheckResult, MaigretCheckStatus
 from maigret.sites import MaigretDatabase, MaigretSite
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _probe_env():
+    """子进程探针的导入环境：把仓库根塞进 PYTHONPATH。
+
+    探针在 tmp_path 里跑，`sys.path[0]` 是那个临时目录，所以 `import maigret`
+    只有在包被 pip 安装过时才成功。CI 是 `pip install -e .`，本地直接跑 pytest
+    往往没装——那种失败来自环境，不是代码。
+    """
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(ROOT) + ((os.pathsep + existing) if existing else "")
+    return env
 
 GOOD_RESULT = MaigretCheckResult('', '', '', MaigretCheckStatus.CLAIMED)
 BAD_RESULT = MaigretCheckResult('', '', '', MaigretCheckStatus.AVAILABLE)
@@ -295,14 +312,17 @@ TEST = [
     ),
 ]
 
-SUPPOSED_BRIEF = """Search by username alexaimephotographycars returned 1 accounts. Found target's other IDs: alexaimephotography, Alexaimephotogr. Search by username alexaimephotography returned 2 accounts. Search by username Alexaimephotogr returned 1 accounts. Extended info extracted from 3 accounts."""
-SUPPOSED_BROKEN_BRIEF = """Search by username alexaimephotographycars returned 0 accounts. Search by username alexaimephotography returned 2 accounts. Search by username Alexaimephotogr returned 1 accounts. Extended info extracted from 2 accounts."""
+# 本分支把报告文案改成了中文，这些常量必须跟着改。
+# 它们断言的是"报告里有没有这段概要"，不是"文案是不是英文"，
+# 所以改文案不降低测试强度。
+SUPPOSED_BRIEF = """按 username 检索 alexaimephotographycars，命中 1 个账号。 发现目标的其他 ID：alexaimephotography, Alexaimephotogr。 按 username 检索 alexaimephotography，命中 2 个账号。 按 username 检索 Alexaimephotogr，命中 1 个账号。 从 3 个账号提取到扩展信息。"""
+SUPPOSED_BROKEN_BRIEF = """按 username 检索 alexaimephotographycars，命中 0 个账号。 按 username 检索 alexaimephotography，命中 2 个账号。 按 username 检索 Alexaimephotogr，命中 1 个账号。 从 2 个账号提取到扩展信息。"""
 
-SUPPOSED_GEO = "Geo: us <span class=\"text-muted\">(3)</span>"
-SUPPOSED_BROKEN_GEO = "Geo: us <span class=\"text-muted\">(2)</span>"
+SUPPOSED_GEO = "地区：us <span class=\"text-muted\">(3)</span>"
+SUPPOSED_BROKEN_GEO = "地区：us <span class=\"text-muted\">(2)</span>"
 
-SUPPOSED_INTERESTS = "Interests: photo <span class=\"text-muted\">(2)</span>, news <span class=\"text-muted\">(1)</span>, social <span class=\"text-muted\">(1)</span>"
-SUPPOSED_BROKEN_INTERESTS = "Interests: news <span class=\"text-muted\">(1)</span>, photo <span class=\"text-muted\">(1)</span>, social <span class=\"text-muted\">(1)</span>"
+SUPPOSED_INTERESTS = "兴趣：photo <span class=\"text-muted\">(2)</span>, news <span class=\"text-muted\">(1)</span>, social <span class=\"text-muted\">(1)</span>"
+SUPPOSED_BROKEN_INTERESTS = "兴趣：news <span class=\"text-muted\">(1)</span>, photo <span class=\"text-muted\">(1)</span>, social <span class=\"text-muted\">(1)</span>"
 
 
 def test_maigret_graph_styles_nodes_and_escapes_titles():
@@ -402,6 +422,36 @@ def test_save_graph_report_uses_dark_self_contained_visualization(tmp_path, defa
     assert options['groups']['identity']['color']['background'] == '#7c3aed'
     assert options['groups']['metadata']['color']['background'] == '#2563eb'
     assert 'lib/bindings' not in graph_html
+
+
+def test_save_graph_report_dark_style_beats_the_pyvis_template(tmp_path, default_db):
+    """图谱白底的两个真实成因，各锁一条断言。
+
+    成因一：vis-network 的 `backgroundColor` 选项**不会**去涂 canvas。实测 canvas 的
+    computed background 是 `rgba(0, 0, 0, 0)`（全透明），透出来的是 pyvis 模板里那句
+    `#mynetwork { background-color: #ffffff; ... }`。所以只改 options 永远白底，
+    必须直接给 `#mynetwork` 和它的 canvas 上色。
+
+    成因二：模板后面还引了一整套 bootstrap，`body { background-color: var(--bs-body-bg) }`
+    和我们的规则同为元素选择器、优先级相同，此时后出现的赢。样式块必须排在 bootstrap
+    之后（也就是 `</body>` 前），否则浅色字就压在纯白上。
+    """
+    filename = tmp_path / 'graph.html'
+
+    save_graph_report(str(filename), TEST, default_db)
+
+    graph_html = filename.read_text(encoding='utf-8')
+
+    # 成因一：节点容器和 canvas 都要显式染深
+    assert '#mynetwork, #mynetwork canvas { background-color: #0f172a !important; }' in graph_html
+
+    # 成因二：样式块在 bootstrap 之后、`</body>` 之前
+    style_pos = graph_html.index('#mynetwork, #mynetwork canvas { background-color')
+    assert style_pos > graph_html.index('bootstrap')
+    assert style_pos < graph_html.index('</body>')
+
+    # `!important` 是这条规则能压过模板和 bootstrap 的前提，缺了就白底
+    assert 'html, body { margin: 0; padding: 0; background: #0f172a !important; }' in graph_html
 
 
 def test_generate_report_template():
@@ -1044,17 +1094,43 @@ def test_is_safe_report_image_url_allows_public_hosts():
     assert _is_safe_report_image_url("http://8.8.8.8/avatar.png") is True
 
 
-def test_pdf_link_callback_diverts_unsafe_to_local_blank():
+def test_pdf_link_callback_diverts_every_resource_to_local_blank():
+    """本分支的本地补丁：**任何**资源都不再联网取，一律换成本地空白图。
+
+    上游原来的实现会放行"公网地址"的图片，这里刻意收紧了两条：
+        1. 远程头像在国内经常不可达，xhtml2pdf 会逐个重试到超时，
+           一次扫描多等几分钟；
+        2. 报告里的图片是可选的装饰，为它保留一条出网路径不值得。
+    """
     assert os.path.exists(_BLANK_IMAGE_PATH)
-    # Unsafe URLs resolve to a local placeholder path, so xhtml2pdf never
-    # fetches or reads them.
     assert _pdf_report_link_callback("file:///etc/passwd", "") == _BLANK_IMAGE_PATH
     assert (
         _pdf_report_link_callback("http://169.254.169.254/x", "") == _BLANK_IMAGE_PATH
     )
-    # Safe public URLs pass through unchanged.
-    url = "https://1.1.1.1/a.png"
-    assert _pdf_report_link_callback(url, "") == url
+    # 连公网地址也不再放行
+    assert _pdf_report_link_callback("https://1.1.1.1/a.png", "") == _BLANK_IMAGE_PATH
+
+
+def test_pdf_link_callback_passes_the_injected_font_through():
+    """字体必须原样放行，否则字体永远加载不到（表现为"注入成功但仍全是方块"）。"""
+    font_uri = "file:///usr/share/fonts/x.ttf"
+    callback = make_pdf_link_callback(font_uri)
+
+    assert callback(font_uri, "") == font_uri
+    assert callback("https://1.1.1.1/a.png", "") == _BLANK_IMAGE_PATH
+
+
+def test_pdf_link_callback_does_not_pass_fonts_through_by_suffix():
+    """按后缀放行等于给出一个绕过口：攻击者在图片 URL 末尾加 .ttf 就能让本机发请求。"""
+    callback = make_pdf_link_callback("file:///usr/share/fonts/x.ttf")
+
+    assert (
+        callback("http://169.254.169.254/evil.ttf", "") == _BLANK_IMAGE_PATH
+    )
+
+
+def test_pdf_link_callback_without_a_font_is_the_plain_one():
+    assert make_pdf_link_callback(None) is _pdf_report_link_callback
 
 
 def test_pdf_report_does_not_fetch_unsafe_image(tmp_path):
@@ -1191,6 +1267,7 @@ def test_save_graph_report_writes_utf8(tmp_path):
             "error::EncodingWarning",
             str(probe),
         ],
+        env=_probe_env(),
         capture_output=True,
         encoding="utf-8",
         errors="replace",
@@ -1410,13 +1487,15 @@ def test_save_markdown_report():
     save_markdown_report(filename, context, run_info={'sites_count': 100, 'flags': '--top-sites 100'})
     with open(filename) as f:
         content = f.read()
-    assert '# Report by searching on username "alice"' in content
-    assert '## Summary' in content
-    assert '## Accounts found' in content
+    # 本分支把 markdown 报告的表头/小节名译成了中文，断言跟着改；
+    # 断言的意图（报告里有标题、有概要、有账号小节、有站点数）不变。
+    assert '# 用户名 alice 的检索报告' in content
+    assert '## 概要' in content
+    assert '## 命中的账号' in content
     assert '### Github' in content
     assert '[https://github.com/alice](https://github.com/alice)' in content
     assert 'Ethical use' in content
-    assert '100 sites checked' in content
+    assert '检查 100 个站点' in content
     # image field must NOT appear in per-site listing
     assert 'avatar.png' not in content
     # list field rendered with join
@@ -1436,8 +1515,8 @@ def test_save_markdown_report_minimal_context():
     save_markdown_report(filename, context)
     with open(filename) as f:
         content = f.read()
-    assert '# Report by searching on username "bob"' in content
-    assert '## Summary' in content
+    assert '# 用户名 bob 的检索报告' in content
+    assert '## 概要' in content
 
 
 def test_get_plaintext_report_minimal():

@@ -3,6 +3,7 @@
 import inspect
 import json
 import os
+import sys
 
 import yarl
 
@@ -576,6 +577,11 @@ def test_activation_cache_ignores_corrupt_file(activation_db):
     assert logger.debug.called
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith('win'),
+    reason='Windows 的 st_mode 不反映文件 ACL：os.open(..., 0o600) 建出来的文件'
+    '读回来是 0o666，这条断言只在 POSIX 上有意义。权限本身仍由 os.open 保证。',
+)
 def test_activation_cache_is_not_world_readable(activation_db):
     """The cache holds session credentials, so the umask must not decide."""
     logger = Mock()

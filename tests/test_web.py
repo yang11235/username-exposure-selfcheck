@@ -162,7 +162,9 @@ def test_results_report_links_open_in_new_tab(client, web_app, monkeypatch):
     results_resp = client.get(status_resp.location)
     body = results_resp.get_data(as_text=True)
 
-    for label in ('CSV Report', 'JSON Report', 'PDF Report', 'HTML Report'):
+    # 本分支把 Web UI 文案改成了中文，这里断言的是"链接和 target 在同一个
+    # <a> 里"，不是"标签叫 CSV Report"，所以跟着改文案不降低测试强度。
+    for label in ('CSV 报告', 'JSON 报告', 'PDF 报告', 'HTML 报告'):
         # crude but effective: the link and its target="_blank" must appear
         # within the same <a> tag, not just somewhere on the page.
         idx = body.index(label)
@@ -374,7 +376,7 @@ def test_live_scan_streams_found_and_done(client, web_app, monkeypatch):
 
     results_page = client.get(done_event['redirect']).get_data(as_text=True)
     assert 'GitHub' in results_page
-    assert 'CSV Report' in results_page
+    assert 'CSV 报告' in results_page
 
 
 def test_live_scan_empty_username_rejected(client, web_app):
@@ -598,7 +600,7 @@ def test_real_report_generation_does_not_crash(client, web_app, monkeypatch):
 def test_history_empty_state(client, web_app):
     resp = client.get('/history')
     assert resp.status_code == 200
-    assert 'No searches have been run yet.' in resp.get_data(as_text=True)
+    assert '还没有执行过检索。' in resp.get_data(as_text=True)
 
 
 def test_history_link_present_on_every_page(client, web_app):
@@ -610,7 +612,7 @@ def test_history_link_present_on_every_page(client, web_app):
 def test_new_search_link_present_on_every_page(client, web_app):
     resp = client.get('/history')
     body = resp.get_data(as_text=True)
-    assert 'New Search' in body
+    assert '新建检索' in body
     assert 'href="/"' in body
 
 
@@ -638,12 +640,12 @@ def test_history_lists_completed_and_failed_runs(client, web_app):
     assert '2026-07-28 10:00:00' in body
     assert 'soxoj, alice' in body
     assert '>7<' in body
-    assert 'completed' in body
+    assert '已完成' in body
     assert '/results/search_ts_completed' in body
 
     assert '2026-07-28 09:00:00' in body
     assert 'bob' in body
-    assert 'failed' in body
+    assert '失败' in body
 
     # Newest run listed first.
     assert body.index('search_ts_completed') < body.index('bob')
@@ -819,3 +821,293 @@ def test_settings_modal_present_on_every_page(client, web_app):
     resp = client.get('/history')
     body = resp.get_data(as_text=True)
     assert 'id="settingsModal"' in body
+
+
+# ---------------------------------------------------------------------------
+# 快速检索必须含中文站
+# ---------------------------------------------------------------------------
+def test_fast_mode_includes_chinese_sites(web_app, monkeypatch):
+    """Web 端的"快速检索"和命令行的默认扫描必须是同一份站点清单。
+
+    这里用的是 tests/db.json（只有 2 个站），而中文站来自 cn overlay 的
+    force_include —— 正好验证"不依赖站点库有多大，中文站都会进来"。
+    """
+    captured = {}
+
+    async def fake_search(**kwargs):
+        captured.update(kwargs.get('site_dict') or {})
+        return []
+
+    monkeypatch.setattr(web_app.maigret, 'search', fake_search)
+
+    asyncio.run(
+        web_app.maigret_search(
+            'wizzer',
+            {'top_sites': 500, 'tags': [], 'excluded_tags': [], 'site_list': []},
+        )
+    )
+
+    assert 'Yuque' in captured
+    assert 'v2ex.com' in captured
+    # 站内搜索站点也要在默认清单里（B 站/网易云的昵称检索）
+    assert 'Bilibili (搜索)' in captured
+    assert 'NetEase Music (搜索)' in captured
+
+
+def test_explicit_site_list_is_not_augmented(web_app, monkeypatch):
+    """`--site` 语义是"只查这几个"，不能再塞 20 个中文站进去。"""
+    captured = {}
+
+    async def fake_search(**kwargs):
+        captured.update(kwargs.get('site_dict') or {})
+        return []
+
+    monkeypatch.setattr(web_app.maigret, 'search', fake_search)
+
+    asyncio.run(
+        web_app.maigret_search(
+            'wizzer',
+            {
+                'top_sites': 500,
+                'tags': [],
+                'excluded_tags': [],
+                'site_list': ['ValidActive'],
+            },
+        )
+    )
+
+    assert set(captured) == {'ValidActive'}
+
+
+# ---------------------------------------------------------------------------
+# 跨站身份归并
+# ---------------------------------------------------------------------------
+def _site_result(status='Claimed', avatar=None, evidence=None):
+    return {
+        'status': {'status': status, 'reason': None, 'confidence': 0.9},
+        'url_user': 'https://example.com/u',
+        'cn_avatar_hash': avatar,
+        'cn_evidence': evidence or [],
+    }
+
+
+def test_cn_clusters_groups_accounts_sharing_an_avatar(web_app):
+    """头像 pHash 相同 → 聚成一簇，并且把"靠什么连起来"一起给出来。"""
+    results = {
+        'Gitee': _site_result(avatar='d35a84ce35748d55'),
+        'NetEase Music': _site_result(avatar='d35a84ce35748d55'),
+        'GitHub': _site_result(avatar='0000000000000000'),
+    }
+
+    groups = web_app._cn_clusters(results)
+
+    assert len(groups) == 1
+    assert {m['site'] for m in groups[0]['members']} == {'Gitee', 'NetEase Music'}
+    assert groups[0]['confidence'] >= 0.6
+    assert any('头像' in reason for m in groups[0]['members'] for reason in m['reasons'])
+
+
+def test_cn_clusters_ignores_unconfirmed_accounts(web_app):
+    """未判定的结果不能进聚类：那等于替用户编造身份关系。"""
+    results = {
+        'Gitee': _site_result(avatar='d35a84ce35748d55'),
+        'Weibo': _site_result(status='Unknown', avatar='d35a84ce35748d55'),
+    }
+
+    assert web_app._cn_clusters(results) == []
+
+
+def test_cn_clusters_returns_empty_on_failure(web_app, monkeypatch):
+    """聚类炸了不能让结果页 500：它是锦上添花，不是主体。"""
+    import maigret.cn.report as cn_report
+
+    def boom(*args, **kwargs):
+        raise RuntimeError('聚类炸了')
+
+    monkeypatch.setattr(cn_report, 'build_accounts', boom)
+
+    assert web_app._cn_clusters({'Gitee': _site_result()}) == []
+
+
+def test_results_page_renders_identity_clusters(client, web_app):
+    """身份簇不该依赖画像：没生成画像时它照样要显示。"""
+    web_app.job_results['ts'] = {
+        'status': 'completed',
+        'session_folder': 'search_ts',
+        'graph_file': 'search_ts/combined_graph.html',
+        'usernames': ['wizzer'],
+        'individual_reports': [
+            {
+                'username': 'wizzer',
+                'csv_file': 'search_ts/report_wizzer.csv',
+                'json_file': 'search_ts/report_wizzer.json',
+                'pdf_file': 'search_ts/report_wizzer.pdf',
+                'html_file': 'search_ts/report_wizzer.html',
+                'claimed_profiles': [],
+                'profile': None,
+                'clusters': [
+                    {
+                        'confidence': 0.9,
+                        'members': [
+                            {
+                                'site': 'Gitee',
+                                'username': 'wizzer',
+                                'url': 'https://gitee.com/wizzer',
+                                'reasons': ['头像 pHash（距离 2）'],
+                            },
+                            {
+                                'site': 'NetEase Music',
+                                'username': 'WizZer',
+                                'url': 'https://music.163.com/user/home?id=1',
+                                'reasons': ['头像 pHash（距离 2）'],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    body = client.get('/results/search_ts').get_data(as_text=True)
+
+    assert '<div class="cluster-block">' in body
+    assert '身份簇 #1' in body
+    assert 'https://gitee.com/wizzer' in body
+    assert '头像 pHash' in body
+
+
+def test_results_page_hides_cluster_block_when_empty(client, web_app):
+    """没有簇的时候不能留一个空壳区块（会让人以为归并跑失败了）。"""
+    web_app.job_results['ts'] = {
+        'status': 'completed',
+        'session_folder': 'search_ts',
+        'graph_file': None,
+        'usernames': ['wizzer'],
+        'individual_reports': [
+            {
+                'username': 'wizzer',
+                'csv_file': 'search_ts/report_wizzer.csv',
+                'json_file': 'search_ts/report_wizzer.json',
+                'pdf_file': 'search_ts/report_wizzer.pdf',
+                'html_file': 'search_ts/report_wizzer.html',
+                'claimed_profiles': [],
+                'profile': None,
+                'clusters': [],
+            }
+        ],
+    }
+
+    body = client.get('/results/search_ts').get_data(as_text=True)
+
+    # 用标签匹配而不是文字匹配：样式表里也有 "跨站身份归并" 的注释
+    assert '<div class="cluster-block">' not in body
+
+
+def test_build_reports_survives_an_empty_result_set(web_app, monkeypatch):
+    """一个用户名都没搜成时，不能因为 `context` 未赋值把整个任务炸掉。
+
+    真实故障（2026-11-15）：设置里勾了「使用 cookies」但 cookies.txt 不存在，
+    检索在发出第一个请求前就失败，`search_multiple_usernames` 返回空列表，
+    然后 `build_reports` 在循环外读 `context` → UnboundLocalError，
+    用户看到的是"检索失败：cannot access local variable 'context'"。
+    """
+    monkeypatch.setattr(maigret.report, 'save_csv_report', lambda *a, **kw: None)
+    monkeypatch.setattr(maigret.report, 'save_json_report', lambda *a, **kw: None)
+    monkeypatch.setattr(maigret.report, 'save_pdf_report', lambda *a, **kw: None)
+    monkeypatch.setattr(maigret.report, 'save_html_report', lambda *a, **kw: None)
+
+    report = web_app.build_reports([], ['yang11235'], 'emptykey')
+
+    assert report['status'] == 'completed'
+    assert report['individual_reports'] == []
+    assert report['found_count'] == 0
+    # 没有结果就没有可分析的东西，别把空上下文喂给 AI 摘要
+    assert report['ai_input'] == ''
+
+
+def test_search_multiple_usernames_raises_when_every_username_fails(web_app, monkeypatch):
+    """全部失败必须报错。
+
+    返回空列表的话，用户看到的是一个"已完成但 0 命中"的结果页 ——
+    和"这个人确实没账号"长得一模一样，而这正是最不该混淆的两件事。
+    """
+
+    async def boom(username, options):
+        raise FileNotFoundError("No such file or directory: 'cookies.txt'")
+
+    monkeypatch.setattr(web_app, 'maigret_search', boom)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        asyncio.run(web_app.search_multiple_usernames(['a', 'b'], {}))
+
+    assert 'cookies.txt' in str(excinfo.value)
+
+
+def test_search_multiple_usernames_keeps_the_ones_that_worked(web_app, monkeypatch):
+    """部分失败不该连累成功的：全丢掉的话用户会以为谁都没查。"""
+
+    async def half(username, options):
+        if username == 'bad':
+            raise RuntimeError('站点库读取失败')
+        return {'GitHub': {'status': None}}
+
+    monkeypatch.setattr(web_app, 'maigret_search', half)
+
+    out = asyncio.run(web_app.search_multiple_usernames(['bad', 'good'], {}))
+
+    assert [u for u, _, _ in out] == ['good']
+
+
+def test_build_reports_survives_an_empty_result_set(web_app, monkeypatch):
+    """一个用户名都没搜成时，不能因为 `context` 未赋值把整个任务炸掉。
+
+    真实故障（2026-11-15）：设置里勾了「使用 cookies」但 cookies.txt 不存在，
+    检索在发出第一个请求前就失败，`search_multiple_usernames` 返回空列表，
+    然后 `build_reports` 在循环外读 `context` → UnboundLocalError，
+    用户看到的是"检索失败：cannot access local variable 'context'"。
+    """
+    monkeypatch.setattr(maigret.report, 'save_csv_report', lambda *a, **kw: None)
+    monkeypatch.setattr(maigret.report, 'save_json_report', lambda *a, **kw: None)
+    monkeypatch.setattr(maigret.report, 'save_pdf_report', lambda *a, **kw: None)
+    monkeypatch.setattr(maigret.report, 'save_html_report', lambda *a, **kw: None)
+
+    report = web_app.build_reports([], ['yang11235'], 'emptykey')
+
+    assert report['status'] == 'completed'
+    assert report['individual_reports'] == []
+    assert report['found_count'] == 0
+    # 没有结果就没有可分析的东西，别把空上下文喂给 AI 摘要
+    assert report['ai_input'] == ''
+
+
+def test_search_multiple_usernames_raises_when_every_username_fails(web_app, monkeypatch):
+    """全部失败必须报错。
+
+    返回空列表的话，用户看到的是一个"已完成但 0 命中"的结果页 ——
+    和"这个人确实没账号"长得一模一样，而这正是最不该混淆的两件事。
+    """
+
+    async def boom(username, options):
+        raise FileNotFoundError("No such file or directory: 'cookies.txt'")
+
+    monkeypatch.setattr(web_app, 'maigret_search', boom)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        asyncio.run(web_app.search_multiple_usernames(['a', 'b'], {}))
+
+    assert 'cookies.txt' in str(excinfo.value)
+
+
+def test_search_multiple_usernames_keeps_the_ones_that_worked(web_app, monkeypatch):
+    """部分失败不该连累成功的：全丢掉的话用户会以为谁都没查。"""
+
+    async def half(username, options):
+        if username == 'bad':
+            raise RuntimeError('站点库读取失败')
+        return {'GitHub': {'status': None}}
+
+    monkeypatch.setattr(web_app, 'maigret_search', half)
+
+    out = asyncio.run(web_app.search_multiple_usernames(['bad', 'good'], {}))
+
+    assert [u for u, _, _ in out] == ['good']

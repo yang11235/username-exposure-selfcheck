@@ -180,6 +180,51 @@
     .cn-out table { width: 100%; }
     .cn-out th, .cn-out td { padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--bs-border-color); }
     .cn-out .cn-note { color: var(--bs-secondary-color, #6c757d); font-size: 0.85rem; margin: 0.4rem 0 0; }
+
+    /* 跨站身份归并 */
+    .cluster-block {
+       margin-top: 0.9rem;
+       padding-top: 0.9rem;
+       border-top: 1px solid var(--bs-border-color);
+    }
+    /* 没有画像时簇是卡片里唯一的内容，别再画一条分隔线 */
+    .profile-card > .cluster-block:first-child {
+       margin-top: 0;
+       padding-top: 0;
+       border-top: none;
+    }
+    .cluster-block h4 { font-size: 1rem; margin: 0 0 0.35rem; }
+    .cluster-note {
+       color: var(--bs-secondary-color, #6c757d);
+       font-size: 0.85rem;
+       margin: 0 0 0.6rem;
+    }
+    .cluster {
+       border: 1px solid var(--bs-border-color);
+       border-radius: 6px;
+       padding: 0.5rem 0.75rem;
+       margin-bottom: 0.5rem;
+    }
+    .cluster-head {
+       font-size: 0.88rem;
+       font-weight: 600;
+       margin-bottom: 0.35rem;
+    }
+    .cluster-conf {
+       font-weight: 400;
+       color: var(--bs-secondary-color, #6c757d);
+       margin-left: 0.4rem;
+    }
+    .cluster ul { list-style: none; padding-left: 0; margin: 0; }
+    .cluster li {
+       display: flex;
+       flex-wrap: wrap;
+       gap: 0.4rem 0.6rem;
+       font-size: 0.88rem;
+       padding: 0.15rem 0;
+    }
+    .cluster-user { font-family: var(--bs-font-monospace, monospace); opacity: 0.85; }
+    .cluster-why { color: var(--bs-secondary-color, #6c757d); }
     </style>
 
     <div class="form-container">
@@ -187,8 +232,9 @@
 
         <p>检索已完成。<a href="{{ url_for('index')}}">返回首页</a></p>
 
-        {% for report in individual_reports %}{% if report.profile %}
+        {% for report in individual_reports %}{% if report.profile or report.clusters %}
         <div class="profile-card">
+            {% if report.profile %}
             <div class="profile-head">
                 <h3 class="mb-0">{{ report.username }} 的画像</h3>
                 <span class="text-muted">命中 {{ report.profile.accounts }} 个站点</span>
@@ -213,6 +259,31 @@
             <div class="ai-out" hidden></div>
             <div class="cn-out" hidden></div>
             <div class="anchor-out" hidden></div>
+            {% endif %}
+
+            {% if report.clusters %}
+            <div class="cluster-block">
+                <h4>{% if report.profile %}跨站身份归并{% else %}{{ report.username }} · 跨站身份归并{% endif %}</h4>
+                <p class="cluster-note">
+                    下面这些账号之间的证据足够强，可能是同一个人。置信度取的是簇内<strong>最弱</strong>的一条边，
+                    不是平均值——一条弱边就足以让整簇不可信。
+                </p>
+                {% for group in report.clusters %}
+                <div class="cluster">
+                    <div class="cluster-head">身份簇 #{{ loop.index }}<span class="cluster-conf">置信度 {{ '%.2f'|format(group.confidence) }}</span></div>
+                    <ul>
+                        {% for member in group.members %}
+                        <li>
+                            {% if member.url %}<a href="{{ member.url }}" target="_blank" rel="noopener">{{ member.site }}</a>{% else %}<span>{{ member.site }}</span>{% endif %}
+                            <span class="cluster-user">{{ member.username }}</span>
+                            {% if member.reasons %}<span class="cluster-why">{{ member.reasons|join(' · ') }}</span>{% else %}<span class="cluster-why">无直接证据</span>{% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
         {% endif %}{% endfor %}
      

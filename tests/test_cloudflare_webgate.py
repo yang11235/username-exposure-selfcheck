@@ -153,8 +153,11 @@ async def test_all_modules_unreachable_actionable_error():
     assert "cloudflare_bypass is enabled" in err.desc
     assert "--cloudflare-bypass" in err.desc
     # Per-module attempt summary still helps users see WHICH backend failed
-    assert "fs:Webgate unreachable" in err.desc
-    assert "cbfs:Webgate unreachable" in err.desc
+    # 这里不能钉死 "unreachable"：连一个没人监听的端口，POSIX 立刻回 RST
+    # （→ Webgate unreachable），Windows 则一直等到超时（→ Webgate timeout）。
+    # 两者对用户是同一件事——solver 没起来——所以只要求两个模块都被点名。
+    assert "fs:Webgate unreachable" in err.desc or "fs:Webgate timeout" in err.desc
+    assert "cbfs:Webgate unreachable" in err.desc or "cbfs:Webgate timeout" in err.desc
     # Primary URL is shown so the user knows where to look
     assert "http://127.0.0.1:1/v1" in err.desc
     # FlareSolverr docker hint when primary is json_api

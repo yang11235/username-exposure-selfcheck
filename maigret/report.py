@@ -23,6 +23,8 @@ from .result import MaigretCheckStatus
 from .sites import MaigretDatabase
 from .utils import is_country_tag, CaseConverter, enrich_link_str
 
+logger = logging.getLogger(__name__)
+
 
 ADDITIONAL_TZINFO = {"CDT": gettz("America/Chicago")}
 SUPPORTED_JSON_REPORT_FORMATS = [
@@ -138,8 +140,8 @@ def _is_safe_report_image_url(uri) -> bool:
 
 
 def _pdf_report_link_callback(uri, rel):
-    """xhtml2pdf resource resolver: let safe public images through, and divert
-    everything else to a local blank placeholder so no fetch/read happens.
+    """xhtml2pdf resource resolver: divert every resource to a local blank
+    placeholder so no fetch/read happens.
 
     Returning a local path (rather than raising) keeps report generation working
     even when a scanned profile carries a hostile image URL — a raise would abort
@@ -147,7 +149,28 @@ def _pdf_report_link_callback(uri, rel):
     """
     # 本地补丁：不再联网下载头像。远程图片在国内常不可达，
     # xhtml2pdf 会逐个重试直到超时，一次扫描要多等几分钟。
+    # 顺带把 SSRF 面彻底关掉：连"公网地址"这条分支都不再保留，
+    # 因为报告里的图片本来就是可选的装饰。
     return _BLANK_IMAGE_PATH
+
+
+def make_pdf_link_callback(font_uri=None):
+    """给一次渲染用的回调：除**指定的那个字体**外，一切资源都换成空白图。
+
+    为什么不能按后缀放行字体（`.ttf` 之类）：这个回调同时处理 `<img src>`，
+    而那些地址来自被抓取的页面，是攻击者可控的。按后缀放行等于给出一个
+    "在 URL 末尾加 .ttf 就能让本机发请求"的绕过口。所以只放行**我们自己
+    注入的那一个 URI**，逐字比较。
+    """
+    if not font_uri:
+        return _pdf_report_link_callback
+
+    def callback(uri, rel):
+        if uri == font_uri:
+            return uri
+        return _BLANK_IMAGE_PATH
+
+    return callback
 
 
 def save_pdf_report(filename: str, context: dict):
@@ -158,16 +181,35 @@ def save_pdf_report(filename: str, context: dict):
     except ImportError as e:
         raise RuntimeError(PDF_EXTRA_HINT) from e
 
+    from .cn.fonts import find_cjk_font, inject_font_style, resource_policy
+
     template, css = generate_report_template(is_pdf=True)
     filled_template = template.render(**context)
 
-    with open(filename, "w+b") as f:
-        pisa.pisaDocument(
-            io.StringIO(filled_template),
-            dest=f,
-            default_css=css,
-            link_callback=_pdf_report_link_callback,
+    # 中文字体：xhtml2pdf 默认的 Helvetica 没有 CJK 字形，中文会渲染成方块。
+    # 找不到字体就按原样渲染（方块，但页面完整），不因此中断报告。
+    font_path = find_cjk_font()
+    font_uri = None
+    if font_path is None:
+        logger.warning(
+            "未找到可用的中文字体，PDF 里的中文会显示为方块。"
+            "可以用环境变量 %s 指定一个 .ttf/.otf 字体文件。",
+            "MAIGRET_CN_PDF_FONT",
         )
+    else:
+        filled_template = inject_font_style(filled_template, font_path)
+        # 字体 URI 必须原样交给 xhtml2pdf：默认回调会把所有资源换成空白图，
+        # 连字体一起换掉的话，字体永远加载不到（表现为"注入成功但仍全是方块"）。
+        font_uri = font_path.as_uri()
+
+    with open(filename, "w+b") as f:
+        with resource_policy(font_path):
+            pisa.pisaDocument(
+                io.StringIO(filled_template),
+                dest=f,
+                default_css=css,
+                link_callback=make_pdf_link_callback(font_uri),
+            )
 
 
 def save_json_report(filename: str, username: str, results: dict, report_type: str):
@@ -175,32 +217,154 @@ def save_json_report(filename: str, username: str, results: dict, report_type: s
         generate_json_report(username, results, f, report_type=report_type)
 
 
+GRAPH_GROUP_IDENTITY = 'identity'
+GRAPH_GROUP_ACCOUNT = 'account'
+GRAPH_GROUP_SITE = 'site'
+GRAPH_GROUP_METADATA = 'metadata'
+
+# vis-network 的节点文字上限：一条上百字符的 URL 铺满整个画布，
+# 图就没法看了。节点名保留完整值（它是唯一键），只把**显示文字**截断。
+GRAPH_LABEL_LIMIT = 48
+
+# 暗色主题。分组配色跟着节点类型走，而不是给每个节点塞一个 color：
+# 分组既能让 vis-network 统一上色，也让用户在渲染出的 options 里
+# 一眼看出这张图有哪几类东西。
+GRAPH_OPTIONS: Dict[str, Any] = {
+    'autoResize': True,
+    'height': '100%',
+    'width': '100%',
+    'backgroundColor': '#0f172a',
+    'nodes': {
+        'borderWidth': 2,
+        'borderWidthSelected': 3,
+        'font': {'color': '#e2e8f0', 'size': 13, 'face': 'arial'},
+        'shape': 'dot',
+    },
+    'groups': {
+        GRAPH_GROUP_IDENTITY: {
+            'shape': 'dot',
+            'size': 22,
+            'color': {'background': '#7c3aed', 'border': '#c4b5fd'},
+        },
+        GRAPH_GROUP_ACCOUNT: {
+            'shape': 'dot',
+            'size': 14,
+            'color': {'background': '#0ea5e9', 'border': '#7dd3fc'},
+        },
+        GRAPH_GROUP_SITE: {
+            'shape': 'box',
+            'color': {'background': '#22c55e', 'border': '#86efac'},
+            'font': {'color': '#052e16', 'size': 13},
+        },
+        GRAPH_GROUP_METADATA: {
+            'shape': 'box',
+            'color': {'background': '#2563eb', 'border': '#93c5fd'},
+            'font': {'color': '#f8fafc', 'size': 12},
+        },
+    },
+    'edges': {
+        # 曲线会让人误以为两条边是同一回事，这里一律直线。
+        'smooth': False,
+        'width': 1,
+        'color': {'color': '#475569', 'highlight': '#a78bfa', 'hover': '#a78bfa'},
+        'font': {'color': '#cbd5e1', 'size': 11, 'strokeWidth': 0},
+        'arrows': {'to': {'enabled': True, 'scaleFactor': 0.5}},
+    },
+    'interaction': {
+        'hover': True,
+        'tooltipDelay': 120,
+        'navigationButtons': True,
+        'keyboard': {'enabled': True},
+        'multiselect': True,
+    },
+    'physics': {
+        'barnesHut': {
+            'gravitationalConstant': -12000,
+            'centralGravity': 0.35,
+            'springLength': 130,
+            'springConstant': 0.04,
+            'damping': 0.09,
+        },
+        # 固定迭代次数：不设上限时每次打开报告都要抖好几秒才稳定。
+        'stabilization': {'enabled': True, 'iterations': 200, 'fit': True},
+    },
+}
+
+# 覆盖 pyvis 模板自带的浅色页面样式（body 外边距、卡片容器、画布、tooltip）。
+#
+# 三条都是实测踩出来的，不是防御性编程：
+#   * `background` 必须带 `!important` —— 模板里后面还引了一整套 bootstrap，
+#     它的 `body { background-color: var(--bs-body-bg) }` 会盖掉同优先级的规则；
+#   * `#mynetwork` 必须显式染深 —— vis-network 的 `backgroundColor` 选项不会去涂
+#     canvas（实测 canvas 的 computed background 是 rgba(0,0,0,0)，全透明），
+#     真正露出来的是 pyvis 写在 `#mynetwork { background-color: {{ bgcolor }} }`
+#     里的白底，于是浅色字压在纯白上，图基本看不见；
+#   * 这段样式插在 `</body>` 之前而不是 `<head>` 之后 —— 按文档顺序，越靠后越
+#     有话语权，插在开头就等于把决定权让给后面加载的 bootstrap。
+_GRAPH_DARK_STYLE = """<style>
+  html, body { margin: 0; padding: 0; background: #0f172a !important; }
+  body > .card, .card { background: #0f172a !important; border: 0 !important; }
+  #mynetwork, #mynetwork canvas { background-color: #0f172a !important; }
+  div.vis-tooltip {
+    background: #1e293b !important; color: #e2e8f0 !important;
+    border: 1px solid #334155 !important; border-radius: 6px;
+    padding: 6px 9px; font-family: arial, sans-serif; font-size: 12px;
+    max-width: 420px; word-break: break-all;
+  }
+</style>"""
+
+
+def _escape_node_text(value) -> str:
+    """把节点键值转成可以安全放进 vis-network tooltip 的 HTML。
+
+    用标准库的 `html.escape`（引号转成 `&quot;`），而不是 markupsafe 的
+    `escape`（转成 `&#34;`）：tooltip 走的是 innerHTML，两者都能正确显示，
+    但 `&quot;` 是更常见、也更方便人工核对的写法。
+    """
+    from html import escape as html_escape
+
+    return html_escape(str(value), quote=True)
+
+
+def _truncate_label(value, limit: int = GRAPH_LABEL_LIMIT) -> str:
+    text = str(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + '...'
+
+
 class MaigretGraph:
-    other_params: dict = {'size': 10, 'group': 3}
-    site_params: dict = {'size': 15, 'group': 2}
-    username_params: dict = {'size': 20, 'group': 1}
+    """networkx 图的一层薄包装：把节点/边补上 vis-network 需要的属性。"""
 
     def __init__(self, graph):
         self.G = graph
 
+    @staticmethod
+    def group_of(key, value) -> str:
+        if key in SUPPORTED_IDS:
+            return GRAPH_GROUP_IDENTITY
+        if key == 'site':
+            return GRAPH_GROUP_SITE
+        if isinstance(value, str) and value.startswith('http'):
+            return GRAPH_GROUP_ACCOUNT
+        return GRAPH_GROUP_METADATA
+
     def add_node(self, key, value, color=None):
         node_name = f'{key}: {value}'
 
-        params = dict(self.other_params)
-        if key in SUPPORTED_IDS:
-            params = dict(self.username_params)
-        elif isinstance(value, str) and value.startswith('http'):
-            params = dict(self.site_params)
-
-        params['title'] = node_name
+        params: Dict[str, Any] = {
+            'group': self.group_of(key, value),
+            'label': _truncate_label(value),
+            'title': f'<b>{_escape_node_text(key)}</b><br>{_escape_node_text(value)}',
+        }
         if color:
             params['color'] = color
 
         self.G.add_node(node_name, **params)
         return node_name
 
-    def link(self, node1_name, node2_name):
-        self.G.add_edge(node1_name, node2_name, weight=2)
+    def link(self, node1_name, node2_name, title=None):
+        self.G.add_edge(node1_name, node2_name, weight=2, title=title or '')
 
 
 def _build_maigret_graph(username_results: list, db: MaigretDatabase):
@@ -255,8 +419,8 @@ def _build_maigret_graph(username_results: list, db: MaigretDatabase):
             account_node_name = site_account_nodes[account_node_id]
 
             # link username → account → site
-            graph.link(username_node_name, account_node_name)
-            graph.link(account_node_name, site_base_node_name)
+            graph.link(username_node_name, account_node_name, 'Matched account')
+            graph.link(account_node_name, site_base_node_name, 'Hosted on site')
 
             def process_ids(parent_node, ids):
                 for k, v in ids.items():
@@ -288,7 +452,7 @@ def _build_maigret_graph(username_results: list, db: MaigretDatabase):
                             processed_values[value_key] = list_node_name
                             for vv in v_data:
                                 data_node_name = graph.add_node(vv, site_base_url)
-                                graph.link(list_node_name, data_node_name)
+                                graph.link(list_node_name, data_node_name, 'List item')
 
                                 if isinstance(vv, str):
                                     add_ids = {
@@ -311,7 +475,11 @@ def _build_maigret_graph(username_results: list, db: MaigretDatabase):
                                     processed_values[new_username_key] = (
                                         new_username_node_name
                                     )
-                                    graph.link(ids_data_name, new_username_node_name)
+                                    graph.link(
+                                        ids_data_name,
+                                        new_username_node_name,
+                                        'Derived identity',
+                                    )
 
                             if isinstance(v, str):
                                 add_ids = {
@@ -320,14 +488,15 @@ def _build_maigret_graph(username_results: list, db: MaigretDatabase):
                                 if add_ids:
                                     process_ids(ids_data_name, add_ids)
 
-                    graph.link(parent_node, ids_data_name)
+                    graph.link(parent_node, ids_data_name, 'Extracted ID')
 
             if status.ids_data:
                 process_ids(account_node_name, status.ids_data)
 
-    # Remove overly long nodes
-    nodes_to_remove = [node for node in G.nodes if len(str(node)) > 100]
-    G.remove_nodes_from(nodes_to_remove)
+    # 这里原本有一段"名字超过 100 字符就把节点删掉"的逻辑。
+    # 它删掉的恰恰是信息量最大的节点：一个长 URL 账号、一个长派生用户名，
+    # 都是真实存在的关系，删掉之后图就断成几块，用户看到的是"没查到"。
+    # 视觉上的问题现在由 label 截断解决：节点名保留完整值，只缩短显示文字。
 
     # Remove site nodes with only one connection
     single_degree_sites = [
@@ -349,6 +518,9 @@ def save_graph_report(filename: str, username_results: list, db: MaigretDatabase
     # which breaks when the report is served from a different directory).
     nt = Network(notebook=True, height="100vh", width="100%", cdn_resources="in_line")
     nt.from_nx(G)
+    # 暗色主题 + 分组配色。`set_options` 收的是一段 JSON 文本，pyvis 会原样
+    # 塞进模板的 `var options = ...;`，所以这里必须是合法 JSON（双引号）。
+    nt.set_options(json.dumps(GRAPH_OPTIONS, ensure_ascii=False))
     # Render and write the file here instead of calling nt.show(): pyvis opens
     # the target with open(name, "w+"), i.e. the locale encoding, which on
     # Windows is a non-UTF-8 codepage (cp1252 by default). The inlined
@@ -356,6 +528,16 @@ def save_graph_report(filename: str, username_results: list, db: MaigretDatabase
     # own, so the write failed with UnicodeEncodeError for every graph report,
     # whatever was scanned. The template already declares a utf-8 charset.
     html = nt.generate_html(name=filename, notebook=True)
+    # vis-network 只负责画布，页面本身（body、pyvis 的 .card、#mynetwork 容器）
+    # 还是白底。画布是 100vh，但 8px 的默认外边距会在四周留一圈白边，
+    # 暗色主题看上去就像"漏了"。补一段覆盖样式，插在 </body> 之前——
+    # 按文档顺序越靠后越有话语权，插在 <head> 之后会被后面加载的 bootstrap 盖掉
+    # （实测就是这么白了一版）。模板里 </body> 只出现一次，替换是安全的；
+    # 万一哪天模板改了，退回插在 <head> 之后，至少不会丢样式。
+    if '</body>' in html:
+        html = html.replace('</body>', _GRAPH_DARK_STYLE + '\n</body>', 1)
+    else:  # pragma: no cover - 模板结构变化时的兜底
+        html = html.replace('<head>', '<head>\n' + _GRAPH_DARK_STYLE, 1)
     with open(filename, "w", encoding="utf-8") as f:
         f.write(html)
 
@@ -918,7 +1100,10 @@ def _normalize_xmind_archive(filename):
 
         os.chmod(temporary_path, archive_mode)
         _validate_xmind_archive(temporary_path, expected_names)
-        with open(temporary_path, 'rb') as temporary_file:
+        # 必须以可写模式打开：Windows 的 os.fsync 是 FlushFileBuffers，
+        # 只读句柄上会抛 EBADF，于是每一份 XMind 报告在 Windows 上都会失败。
+        # POSIX 允许对只读 fd 做 fsync，所以 Linux CI 一直没暴露这个问题。
+        with open(temporary_path, 'r+b') as temporary_file:
             os.fsync(temporary_file.fileno())
         os.replace(temporary_path, archive_path)
     except BaseException:
@@ -986,12 +1171,16 @@ def design_xmind_sheet(sheet, username, results):
 
         category = None
         for tag in normalized_tags:
-            if tag in alltags.keys():
-                continue
-            tagsection = root_topic1.addSubTopic()
-            tagsection.setTitle(tag)
-            alltags[tag] = tagsection
-            category = tag
+            if tag not in alltags:
+                tagsection = root_topic1.addSubTopic()
+                tagsection.setTitle(tag)
+                alltags[tag] = tagsection
+            # 本地补丁：标签已存在时必须**复用**那一节。
+            # 原实现对已存在的标签直接 `continue`，`category` 停在 None，
+            # 于是第二个用同一标签的站点被塞进 "Undefined" —— 同一个标签下的
+            # 站点被拆到两处，而且 Undefined 那节不再是"没打标签的站点"。
+            if category is None:
+                category = tag
 
         section = alltags[category] if category else undefinedsection
         userlink = section.addSubTopic()

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>用户主页 - 知乎</title>
+  <link rel="stylesheet" href="https://static.zhihu.com/heifetz/main.app.9a3c1f2d.css">
+</head>
+<body>
+  <header class="AppHeader">
+    <a class="AppHeader-logo" href="/">知乎</a>
+    <nav class="AppHeader-nav">
+      <a href="/">首页</a>
+      <a href="/explore">发现</a>
+      <a href="/hot">热榜</a>
+    </nav>
+  </header>
+  <main class="App-main">
+    <div class="ProfileHeader ProfileHeader--anonymous">
+      <img class="Avatar Avatar--large" src="https://pic1.zhimg.com/v2-0000000000000000000000000000_is.jpg" alt="">
+      <div class="ProfileHeader-info">
+        <h1 class="ProfileHeader-name">匿名用户</h1>
+        <div class="ProfileHeader-headline">该用户的主页需要登录后才能访问</div>
+      </div>
+      <div class="ProfileHeader-detail">
+        <p>您需要登录才能查看这位用户的完整资料、回答与文章</p>
+        <a class="Button Button--blue" href="/signin?next=%2Fpeople%2Fzhang-san">立即登录</a>
+      </div>
+    </div>
+    <div class="PlaceHolder">
+      <p>请先登录后查看完整内容</p>
+    </div>
+  </main>
+  <script>
+    window.__INITIAL_STATE__ = {"user": null, "needLogin": true, "redirect": "/people/zhang-san"};
+  </script>
+</body>
+</html>
