@@ -56,5 +56,13 @@ docs/source/locale/**/*.mo
 
 # 本仓库：运行期数据（Cookie、设置、报告）不应提交
 cookies.txt
+cookies*.txt
 web_settings.json
 .maigret/
+selfcheck.json
+
+# 本仓库：本地测试产物与工具目录
+maigret-test/
+.pytest_cache/
+.workbuddy/
+.workbuddy-ai/

@@ -1,0 +1,25 @@
+# 统一行尾为 LF。
+#
+# 为什么需要这条：Windows 上的编辑器（包括各种 Write 工具）默认按 CRLF 保存，
+# 一个文件被整份重写后，git diff 会显示「1453 行删除 + 1532 行插入」，
+# 而真实改动只有 100 行。审阅时看不出改了什么，rebase 时满屏冲突。
+#
+# 加这条之后，检出到 Windows 也用 LF，编辑器不会再把 CRLF 写回来。
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF，否则 cmd.exe 解析 goto/label 会出问题
+Installer.bat text eol=crlf
+
+# 二进制文件不做行尾转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.xmind binary
+*.zip binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.ttc binary
