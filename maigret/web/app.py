@@ -728,6 +728,28 @@ async def _stream_search(job, usernames, options):
             if notify.results:
                 general_results.append((username.strip(), 'username', notify.results))
             q.put({'type': 'error', 'message': str(e), 'username': username.strip()})
+
+    # 检索跑完接着跑中文平台补检（B 站搜索、微博）。
+    #
+    # 为什么放在这里而不是让用户再点一次按钮：补检本来就是这次检索的一部分，
+    # 分成两步只让人多操作一次，还容易忘记点。事件用 'cn' 推给前端，结果页
+    # 的「中文补检」按钮仍保留，用来重跑（Cookie 过期后重试的场景）。
+    #
+    # 放在 for 循环之后、且只看最后一个用户名：补检接口是按用户名搜人，
+    # 多个用户名（尤其是 permute 生成的几十个变体）逐个补检会把请求量放大
+    # 到几百次，而变体本来就不是"真实的人"。用户输入的第一个用户名才是主体。
+    if not job['cancelled'] and usernames:
+        try:
+            browser_jar = None
+            if options.get('use_browser_cookies'):
+                browser_jar = await _load_browser_jar()
+            items, notes = await probe_platforms([usernames[0]], browser_jar)
+            job['cn_probe'] = {'items': items, 'notes': notes}
+            q.put({'type': 'cn', 'items': items, 'notes': notes})
+        except Exception as exc:  # 补检失败不该影响已经拿到的检索结果
+            logging.warning('自动中文补检失败：%s', exc)
+            q.put({'type': 'cn', 'items': [], 'notes': [f'补检未完成：{exc}']})
+
     return general_results
 
 
@@ -758,6 +780,10 @@ def run_stream_job(job_id, usernames, options):
                 job_results[job_id]['anchor'] = _anchor
             job_results[job_id]['started_at'] = started_at
             job_results[job_id]['finished_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # 自动补检的结果随结果页一起渲染，用户不必再点一次按钮。
+            _cn = job.get('cn_probe')
+            if _cn:
+                job_results[job_id]['cn_probe'] = _cn
             _prune_job_results(keep=job_id)
             done_event['redirect'] = f"/results/search_{job_id}"
         except Exception as e:
@@ -1132,6 +1158,8 @@ def results(session_id):
         usernames=result_data['usernames'],
         graph_file=result_data['graph_file'],
         individual_reports=result_data['individual_reports'],
+        # 检索结束时就跑过的中文补检结果；没有就是 None，前端不渲染那块。
+        cn_probe=result_data.get('cn_probe'),
         timestamp=session_id.replace('search_', ''),
     )
 

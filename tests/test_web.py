@@ -1603,3 +1603,118 @@ def test_cookie_header_matches_subdomains(web_app):
     assert cn_probe._cookie_header(jar, 's.weibo.com') == 'SUB=x'
     assert cn_probe._cookie_header(jar, 'weibo.com') == 'SUB=x'
     assert cn_probe._cookie_header(jar, 'example.com') == ''
+
+
+# ---------------------------------------------------------------------------
+# 补检合并进检索
+# ---------------------------------------------------------------------------
+def test_stream_search_runs_cn_probe_automatically(web_app, monkeypatch):
+    """检索结束要自动跑补检，不再让用户多点一次按钮。
+
+    只对**第一个用户名**补检：permute 会生成几十个变体，逐个补检会把请求量
+    放大到几百次，而变体本来就不是真实的人。
+    """
+    probed = {}
+
+    async def fake_search(username, options, query_notify=None):
+        return {'GitHub': {'status': None}}
+
+    async def fake_probe(usernames, browser_jar=None):
+        probed['usernames'] = list(usernames)
+        return ([{'platform': 'B站', 'name': 'x', 'url': 'u', 'confidence': '高', 'extra': ''}],
+                ['微博没有搜到同名用户'])
+
+    monkeypatch.setattr(web_app, 'maigret_search', fake_search)
+    monkeypatch.setattr(web_app, 'probe_platforms', fake_probe)
+
+    import queue as queue_mod
+    q = queue_mod.Queue()
+    job = {'queue': q, 'cancelled': False}
+    options = {'permute': False, 'parse_url': '', 'use_browser_cookies': False}
+
+    asyncio.run(web_app._stream_search(job, ['soxoj', 'other'], options))
+
+    # 只补检第一个用户名
+    assert probed.get('usernames') == ['soxoj']
+    # 结果存进 job，供 run_stream_job 转交结果页
+    assert job['cn_probe']['items'][0]['platform'] == 'B站'
+
+    events = []
+    while not q.empty():
+        events.append(q.get())
+    cn_events = [e for e in events if e.get('type') == 'cn']
+    assert len(cn_events) == 1
+    assert cn_events[0]['notes'] == ['微博没有搜到同名用户']
+
+
+def test_stream_search_survives_cn_probe_failure(web_app, monkeypatch):
+    """补检失败不能连累已经拿到的检索结果。"""
+    async def fake_search(username, options, query_notify=None):
+        return {'GitHub': {'status': None}}
+
+    async def boom(usernames, browser_jar=None):
+        raise RuntimeError('CDP 连不上')
+
+    monkeypatch.setattr(web_app, 'maigret_search', fake_search)
+    monkeypatch.setattr(web_app, 'probe_platforms', boom)
+
+    import queue as queue_mod
+    q = queue_mod.Queue()
+    job = {'queue': q, 'cancelled': False}
+
+    out = asyncio.run(
+        web_app._stream_search(job, ['soxoj'], {'parse_url': '', 'use_browser_cookies': False})
+    )
+
+    # 检索结果还在
+    assert out and out[0][0] == 'soxoj'
+    # 补检失败变成一条提示，不是异常
+    events = []
+    while not q.empty():
+        events.append(q.get())
+    cn_events = [e for e in events if e.get('type') == 'cn']
+    assert cn_events and 'CDP 连不上' in cn_events[0]['notes'][0]
+
+
+def test_cancelled_search_skips_cn_probe(web_app, monkeypatch):
+    """用户点了停止就别再跑补检——他要的是立刻停。"""
+    called = {'probe': False}
+
+    async def fake_probe(usernames, browser_jar=None):
+        called['probe'] = True
+        return [], []
+
+    monkeypatch.setattr(web_app, 'probe_platforms', fake_probe)
+
+    import queue as queue_mod
+    q = queue_mod.Queue()
+    job = {'queue': q, 'cancelled': True}
+
+    asyncio.run(web_app._stream_search(job, ['soxoj'], {'parse_url': '', 'use_browser_cookies': False}))
+
+    assert called['probe'] is False
+
+
+def test_results_page_renders_cn_probe_from_job(client, web_app):
+    """自动补检的结果要出现在结果页上，用户不用再点按钮。"""
+    web_app.job_results['k1'] = {
+        'status': 'completed',
+        'session_folder': 'search_k1',
+        'usernames': ['soxoj'],
+        'graph_file': 'search_k1/combined_graph.html',
+        'individual_reports': [],
+        'cn_probe': {
+            'items': [{'platform': 'B站', 'name': 'SoXoJ', 'url': 'https://x',
+                       'confidence': '高', 'extra': '粉丝 0'}],
+            'notes': ['微博没有搜到同名用户'],
+        },
+    }
+
+    body = client.get('/results/search_k1').get_data(as_text=True)
+
+    assert 'renderCnProbe' in body
+    # 中文在 tojson 里是 \uXXXX 转义，前端 JSON.parse 后还原。
+    # 直接断言原文会失败，所以断言转义形态存在即可。
+    escaped = json.dumps('SoXoJ', ensure_ascii=True)[1:-1]
+    assert escaped in body
+    assert 'renderCnProbe' in body

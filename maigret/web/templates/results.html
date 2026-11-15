@@ -471,6 +471,39 @@ document.querySelectorAll('.ai-btn').forEach(function (btn) {
 });
 </script>
 <script>
+// 补检结果的渲染抽成函数：自动补检（检索结束随 SSE 推来）和手动重跑
+// 共用同一套输出，避免两处格式不一致。
+function renderCnProbe(out, items, notes) {
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    let html = '';
+    if (items && items.length) {
+        html += '<table><thead><tr><th>平台</th><th>昵称</th><th>置信</th><th>说明</th></tr></thead><tbody>';
+        for (const it of items) {
+            html += '<tr><td>' + esc(it.platform) + '</td>'
+                + '<td><a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.name) + '</a></td>'
+                + '<td>' + esc(it.confidence) + '</td><td>' + esc(it.extra) + '</td></tr>';
+        }
+        html += '</tbody></table>';
+    } else {
+        html += '<p class="mb-1">没有搜到同名账号。</p>';
+    }
+    for (const note of (notes || [])) html += '<p class="cn-note">' + esc(note) + '</p>';
+    out.innerHTML = html;
+    out.hidden = false;
+}
+
+// 自动补检的结果随页面一起渲染进来（服务端已经跑过，不必再请求一次）。
+{# 注意用下标而不是 `.items`：dict 的 `.items` 是内置方法，Jinja 会优先
+   取到那个方法并交给 tojson，报 "builtin_function_or_method is not JSON
+   serializable"。 #}
+{% if cn_probe %}
+renderCnProbe(
+    document.querySelector('.cn-out'),
+    {{ (cn_probe['items'] or [])|tojson }},
+    {{ (cn_probe['notes'] or [])|tojson }}
+);
+{% endif %}
+
 document.querySelectorAll('.cn-btn').forEach(function (btn) {
     btn.addEventListener('click', async function () {
         const card = btn.closest('.profile-card');
@@ -478,7 +511,7 @@ document.querySelectorAll('.cn-btn').forEach(function (btn) {
         btn.disabled = true;
         btn.textContent = '查询中…';
         out.hidden = false;
-        out.textContent = '正在查询 B站、微博、贴吧…';
+        out.textContent = '正在查询 B站、微博…';
         try {
             const resp = await fetch('/api/cn/' + btn.dataset.job, { method: 'POST' });
             const data = await resp.json();
@@ -486,26 +519,12 @@ document.querySelectorAll('.cn-btn').forEach(function (btn) {
                 out.textContent = data.error || '补检失败';
                 return;
             }
-            const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-            let html = '';
-            if (data.items.length) {
-                html += '<table><thead><tr><th>平台</th><th>昵称</th><th>置信</th><th>说明</th></tr></thead><tbody>';
-                for (const it of data.items) {
-                    html += '<tr><td>' + esc(it.platform) + '</td>'
-                        + '<td><a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.name) + '</a></td>'
-                        + '<td>' + esc(it.confidence) + '</td><td>' + esc(it.extra) + '</td></tr>';
-                }
-                html += '</tbody></table>';
-            } else {
-                html += '<p class="mb-1">没有搜到同名账号。</p>';
-            }
-            for (const note of data.notes) html += '<p class="cn-note">' + esc(note) + '</p>';
-            out.innerHTML = html;
+            renderCnProbe(out, data.items, data.notes);
         } catch (err) {
             out.textContent = '请求失败：' + err;
         } finally {
             btn.disabled = false;
-            btn.textContent = '中文补检';
+            btn.textContent = '重新补检';
         }
     });
 });

@@ -151,6 +151,12 @@
                 + '从 URL 解析到：' + ev.items.join('、');
         } else if (ev.type === 'stopped') {
             statusEl.textContent = '已停止。';
+        } else if (ev.type === 'cn') {
+            // 检索跑完会自动做一轮中文平台补检（B站搜索、微博），这里给个
+            // 进度提示，避免用户在最后几秒以为卡住了。
+            const n = (ev.items || []).length;
+            document.getElementById('live-extra').textContent =
+                '中文平台补检完成：' + (n ? '找到 ' + n + ' 条线索' : '无同名账号');
         } else if (ev.type === 'error') {
             statusEl.textContent = '错误：' + ev.message;
         } else if (ev.type === 'done') {
