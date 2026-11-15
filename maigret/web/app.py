@@ -1021,23 +1021,40 @@ def settings_update():
     save_settings(parse_settings_form(request.form))
     _domain = (request.form.get('cookie_domain') or '').strip()
     _text = (request.form.get('cookie_text') or '').strip()
-    if _text:
+    # 上传的文件优先于粘贴框：用户拉一个大文件进来时，粘贴框通常是空的。
+    # 扩展「导出全部」动辄上千条、几十万字节，粘进 textarea 会让浏览器卡死，
+    # 所以文件上传才是批量场景的正常入口。
+    _upload = request.files.get('cookie_file')
+    _upload_error = None
+    if _upload and _upload.filename:
+        try:
+            _text = _upload.read().decode('utf-8', 'replace').strip()
+        except Exception as _exc:
+            _upload_error = f'读取文件失败：{_exc}'
+            _text = ''
+
+    _drop_trackers = bool(request.form.get('cookie_only_relevant'))
+
+    if _upload_error:
+        flash(_upload_error, 'danger')
+    elif _text:
         try:
             if looks_netscape(_text):
-                _n, _d = import_netscape(_text)
+                _n, _d = import_netscape(_text, drop_trackers=_drop_trackers)
                 # 只说"导入 N 条"没有信息量：用户真正想知道的是**这些 cookie
                 # 解锁了哪些站**。没有登录凭据的 cookie（比如只有 BAIDUID）
                 # 导入再多也判不出账号。
                 unlocked, locked = _describe_cookie_coverage()
+                _extra = '（已丢弃追踪类域名）' if _drop_trackers else ''
                 if unlocked:
-                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie；'
+                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie{_extra}；'
                           f'可判定的站：{"、".join(unlocked)}。', 'success')
                 elif locked:
-                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie，'
+                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie{_extra}，'
                           f'但里面没有 {"、".join(locked)} 的登录凭据——'
                           f'这些站仍然判不出来。扩展导出时记得包含 httpOnly cookie。', 'warning')
                 else:
-                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie。', 'success')
+                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie{_extra}。', 'success')
             elif _domain:
                 _n = save_cookies(_domain, _text)
                 flash(f'已保存 {_domain} 的 {_n} 个 Cookie。', 'success')

@@ -236,7 +236,7 @@
     <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
-                <form method="POST" action="{{ url_for('settings_update') }}">
+                <form method="POST" action="{{ url_for('settings_update') }}" enctype="multipart/form-data">
                     <div class="modal-header">
                         <h5 class="modal-title" id="settingsModalLabel">设置</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
@@ -309,6 +309,27 @@
                                 placeholder="两种都行：① 浏览器 F12 → 网络 → 请求头里 Cookie: 后面的内容（需填域名）；② 扩展导出的 cookies.txt 全文（制表符分隔，可含多个域名，直接粘贴）"></textarea>
                             <div class="form-text">
                                 {% if cookie_domains %}已保存：{% for d, n in cookie_domains.items() %}{{ d }}（{{ n }} 条）{% if not loop.last %}、{% endif %}{% endfor %}{% else %}还没有保存任何 Cookie{% endif %}
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="settings-cookie-file" class="form-label">或直接上传 cookies.txt</label>
+                            <input type="file" class="form-control form-control-sm" id="settings-cookie-file"
+                                name="cookie_file" accept=".txt,text/plain">
+                            <div class="form-text">
+                                扩展「导出全部」得到的文件通常有几十上百 KB、上千条 cookie，
+                                粘贴进上面的框会让浏览器明显卡顿。上传文件时全部域名一次导入。
+                            </div>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="settings-cookie-only-relevant"
+                                name="cookie_only_relevant" checked>
+                            <label class="form-check-label" for="settings-cookie-only-relevant">
+                                只保留本工具会用到的域名
+                            </label>
+                            <div class="form-text">
+                                扩展导出的文件里绝大多数是分析/广告类 cookie（google-analytics、
+                                doubleclick 等），本工具一个都用不到。勾上后这些会被丢弃，
+                                文件从几百 KB 降到几 KB，也不会有无关数据留在本地。
                             </div>
                         </div>
 

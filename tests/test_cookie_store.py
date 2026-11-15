@@ -216,3 +216,110 @@ def test_coverage_of_empty_store_is_all_missing(store):
 
     assert unlocked == []
     assert missing
+
+
+# ---------------------------------------------------------------------------
+# 批量导入：一次覆盖所有域名
+# ---------------------------------------------------------------------------
+def test_batch_import_covers_many_domains_at_once(store):
+    """扩展「导出全部」会把所有站放一个文件里，一次导入即可。
+
+    用户不该为了五个站导出五次。
+    """
+    text = '\n'.join(
+        '#HttpOnly_' + netscape_row(f'.{d}.com', marker, 'v', secure='TRUE')
+        for d, marker in (
+            ('weibo', 'SUB'), ('zhihu', 'z_c0'),
+            ('baidu', 'BDUSS'), ('bilibili', 'SESSDATA'), ('douban', 'dbcl2'),
+        )
+    )
+
+    count, domains = cookie_store.import_netscape(text)
+
+    assert count == 5
+    assert domains == 5
+    assert len(cookie_store.cookie_domains()) == 5
+
+
+# ---------------------------------------------------------------------------
+# 追踪域名过滤
+# ---------------------------------------------------------------------------
+def test_tracker_filter_drops_analytics_but_keeps_logins(store):
+    """分析/广告类 cookie 占全量导出的很大一部分，本工具一个都用不到。
+
+    关键是不能误伤登录凭据——所以必须按精确域名或后缀匹配，
+    不能用"包含"（`notgoogle-analytics.com` 会被误删）。
+    """
+    text = '\n'.join([
+        '#HttpOnly_' + netscape_row('.weibo.com', 'SUB', 'w', secure='TRUE'),
+        netscape_row('.google-analytics.com', '_ga', 'GA1'),
+        netscape_row('.doubleclick.net', '_c', 'x'),
+        netscape_row('.stats.google-analytics.com', '_gid', 'y'),
+        netscape_row('.hm.baidu.com', 'HMACCOUNT', 'z'),
+    ])
+
+    count, _ = cookie_store.import_netscape(text, drop_trackers=True)
+
+    assert count == 1
+    rows = store.read_text(encoding='utf-8')
+    assert '\tSUB\t' in rows
+    for gone in ('_ga', 'doubleclick', 'HMACCOUNT'):
+        assert gone not in rows
+
+
+def test_tracker_filter_keeps_unrelated_real_sites(store):
+    """黑名单只该丢追踪商，不该丢"站点库没收录的真实站点"。
+
+    误删是静默的——用户不知道少导了什么，所以宁可多留。
+    """
+    text = '\n'.join([
+        netscape_row('.weibo.cn', 'SUB', 'w'),
+        netscape_row('.some-forum.example', 'sid', 'x'),
+    ])
+
+    count, _ = cookie_store.import_netscape(text, drop_trackers=True)
+
+    assert count == 2
+
+
+def test_tracker_detection_is_suffix_based_not_substring(store):
+    """`notgoogle-analytics.com` 不是 Google 的域，不能误判。"""
+    assert cookie_store.is_tracker_domain('.google-analytics.com') is True
+    assert cookie_store.is_tracker_domain('.stats.google-analytics.com') is True
+    assert cookie_store.is_tracker_domain('.notgoogle-analytics.com') is False
+    assert cookie_store.is_tracker_domain('.weibo.com') is False
+    assert cookie_store.is_tracker_domain('') is False
+
+
+def test_tracker_filter_clears_previous_trackers_on_reimport(store):
+    """先导全量、再勾过滤重导，旧的追踪记录不能残留。
+
+    勾了「只保留本工具会用到的域名」却还能在文件里看到 doubleclick，
+    是自相矛盾的。
+    """
+    cookie_store.import_netscape(
+        netscape_row('.weibo.com', 'SUB', 'w') + '\n'
+        + netscape_row('.doubleclick.net', '_c', 'x'),
+        drop_trackers=False,
+    )
+    assert any('doubleclick' in r for r in cookie_store._rows())
+
+    cookie_store.import_netscape(
+        netscape_row('.weibo.com', 'SUB', 'w'), drop_trackers=True
+    )
+
+    assert not any('doubleclick' in r for r in cookie_store._rows())
+
+
+def test_all_tracker_input_raises_a_clear_error(store):
+    """整份文件都是追踪 cookie 时，别报"没有解析到"——那会误导用户以为格式错了。"""
+    text = netscape_row('.doubleclick.net', '_c', 'x')
+
+    with pytest.raises(ValueError) as excinfo:
+        cookie_store.import_netscape(text, drop_trackers=True)
+
+    assert '追踪' in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# 批量导入：一次覆盖所有域名
