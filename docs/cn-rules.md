@@ -426,7 +426,7 @@ python utils/cn_import.py --from maigret maigret/resources/data.json --dry-run
 | `maigret/cn/schema.py` | 入库校验，六类必错写法在这里被拦 |
 | `maigret/cn/verdict.py` | 判定引擎，判定顺序在这里 |
 | `maigret/cn/extract.py` | 证据抽取，`extract` 字段驱动 |
-| `maigret/cn/platforms/` | 接口型站点的 JSON 抽取器（B 站 / 网易云 / 掘金） |
+| `maigret/cn/platforms/` | 接口型站点的 JSON 抽取器（B 站 / 网易云 / 掘金 / 百度贴吧） |
 | `maigret/cn/executors/search.py` | 站内搜索执行器（E 型站点），判据是"逐字同名句柄" |
 | `maigret/cn/identity.py` | 跨站身份归并，报告和 Web 结果页共用 |
 | `utils/cn_selfcheck.py` | 规则自检（真打两次） |
