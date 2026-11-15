@@ -22,7 +22,6 @@ from maigret.cn.extract import (
     extract_ip_location,
     extract_nickname,
     extract_phone,
-    mask,
     strip_account_suffix,
     summarize,
     visible_text,
@@ -264,35 +263,6 @@ def test_duplicates_are_collapsed():
     found = extract_evidence(page, ["ip_location"])
 
     assert len(found) == 1
-
-
-# ---------------------------------------------------------------------------
-# 脱敏
-# ---------------------------------------------------------------------------
-def test_mask_email_keeps_domain():
-    assert mask("zhangwei@qq.com", "email") == "zh***@qq.com"
-
-
-def test_mask_phone_keeps_head_and_tail():
-    assert mask("13812345678", "phone") == "138****5678"
-
-
-def test_mask_real_name_keeps_surname():
-    assert mask("张伟", "real_name") == "张*"
-    assert mask("欧阳修远", "real_name") == "欧***"
-
-
-def test_mask_is_idempotent_for_non_sensitive_fields():
-    """昵称和头像哈希本身不是敏感标识，遮了反而看不懂。"""
-    assert mask("zhangwei", "nickname") == "zhangwei"
-    assert mask("abc123def", "avatar_hash") == "abc123def"
-
-
-def test_evidence_dict_respects_mask_flag():
-    item = Evidence("email", "zhangwei@qq.com", "正文邮箱")
-
-    assert item.to_dict()["value"] == "zhangwei@qq.com"
-    assert item.to_dict(masked=True)["value"] == "zh***@qq.com"
 
 
 def test_summarize_puts_high_risk_first():

@@ -454,16 +454,6 @@ def setup_arguments_parser(settings: Settings):
         "Use with --site <name> when writing or fixing a site rule.",
     )
     output_group.add_argument(
-        "--mask",
-        action="store_true",
-        dest="mask",
-        default=False,
-        help="Mask extracted personal fields (email, phone, name, region) in the "
-        "output. Off by default: this tool does not share data, so masking your "
-        "own report only makes it harder to read. Turn it on before screenshots "
-        "or screen recordings.",
-    )
-    output_group.add_argument(
         "--cn-summary",
         action=BooleanOptionalAction,
         dest="cn_summary",
@@ -1182,7 +1172,6 @@ async def main():
             checkpoint=args.checkpoint,
             resume=args.resume,
             dump_response=args.dump_response,
-            mask=args.mask,
         ))
         _current_search_task[0] = search_task
         try:

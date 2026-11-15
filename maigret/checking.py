@@ -1036,9 +1036,7 @@ def process_site_result(
                 logger.warning("站点 %s 证据抽取失败：%s", site.name, exc)
                 evidence = []
             if evidence:
-                results_info["cn_evidence"] = summarize(
-                    evidence, masked=bool(results_info.get("mask"))
-                )
+                results_info["cn_evidence"] = summarize(evidence)
                 # 同时并入 ids_data。
                 #
                 # 为什么两处都要写：`cn_evidence` 只喂命令行报告的"证据明细"，
@@ -1089,9 +1087,6 @@ def make_site_result(
     results_site["parsing_enabled"] = options["parsing"]
     # --dump-response：写站点规则时必需，否则只能靠猜 e_string
     results_site["dump_response"] = bool(options.get("dump_response"))
-    # 脱敏开关随结果走，因为抽取发生在 process_site_result 里，
-    # 那个函数拿不到 options（只有 results_info）。
-    results_site["mask"] = bool(options.get("mask"))
     results_site["url_main"] = site.url_main
     results_site["cookies"] = (
         options.get("cookie_jar")
@@ -1355,7 +1350,6 @@ async def check_site_for_username(
                 _cn_extract_fields(site),
                 html_text,
                 base_url=response_result.get('url_user') or site.url_main or '',
-                masked=bool(response_result.get('mask')),
                 timeout=min(float(options.get('timeout') or 10), 15.0),
             )
         except Exception as exc:
@@ -1633,9 +1627,6 @@ async def maigret(
     options["cloudflare_bypass"] = cloudflare_bypass
     options["proxy"] = proxy
     options["dump_response"] = dump_response
-    # 脱敏开关只影响"写进结果里的证据值"，不影响判定和抽取本身。
-    # 默认关闭（文档 §5.6）：本项目不做分享，自己看自己的数据没必要遮。
-    options["mask"] = bool(kwargs.get("mask", False))
 
     # results from analysis of all sites
     # When the caller wants to read partial results after a Ctrl+C

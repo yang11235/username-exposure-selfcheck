@@ -579,7 +579,6 @@ def _run_site_result(monkeypatch, spec, html):
         'parsing_enabled': True,
         'url_user': 'https://search.bilibili.com/upuser?keyword=wizzer',
         'url_probe': 'https://search.bilibili.com/upuser?keyword=wizzer',
-        'mask': False,
     }
     return checking.process_site_result(
         (html, 200, None), None, logging.getLogger('t'), info, _msite()

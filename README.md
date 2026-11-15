@@ -77,7 +77,6 @@ pip install -e .
 ```bash
 python -m maigret 用户名                          # 默认扫描 + 自查结论
 python -m maigret 用户名 --pdf --graph            # 加 PDF 与图谱报告
-python -m maigret 用户名 --mask                   # 脱敏输出，截图前用
 python -m maigret 用户名 --site Baidu --site Juejin
 ```
 
@@ -96,7 +95,6 @@ python -m maigret --web 5000
 | 开关 | 作用 |
 |---|---|
 | `--no-cn-summary` | 关掉自查结论，输出回到上游原样 |
-| `--mask` | 脱敏邮箱、手机号、姓名、属地 |
 | `--dump-response` | 打印每个站点的完整响应（写规则时必需） |
 | `--cn-exclusions PATH` | 本地假阳性排除表 |
 | `--checkpoint` / `--resume PATH` | 中断后从检查点续跑 |

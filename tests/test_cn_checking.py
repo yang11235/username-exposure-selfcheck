@@ -4,14 +4,13 @@
 抽取层才被允许去读页面。这里没有测试的话，两个模块各自 100% 覆盖、
 拼起来却是断的——真实扫描时表现为"报告里什么都没有"，而且不报错。
 
-守三件事：
+守两件事：
 
     1. **只对 CLAIMED 抽**。对未确认的页面抽字段，等于把别人的信息记到
        这个用户名头上。判定层刚把"被拦截/登录墙"降级成 UNKNOWN 的页面，
        绝不能在这里又被当成真人主页来读。
     2. **只抽站点声明过的字段**。`_cn_extract_fields` 返回空列表的含义是
        "这个站不值得抽"，**不是**"抽全部"。
-    3. **脱敏开关要生效**。`--mask` 关掉时原样输出，打开时遮住。
 """
 
 import logging
@@ -63,7 +62,6 @@ def make_results_info(username="laowang", **overrides):
         "parsing_enabled": False,
         "url_user": f"https://example.cn/{username}",
         "url_probe": f"https://example.cn/{username}",
-        "mask": False,
     }
     info.update(overrides)
     return info
@@ -166,29 +164,6 @@ def test_evidence_is_not_written_for_a_blocked_page(cn_spec):
     info = run((PROFILE_HTML, 403, None))
 
     assert "cn_evidence" not in info
-
-
-# ---------------------------------------------------------------------------
-# 脱敏
-# ---------------------------------------------------------------------------
-def test_mask_flag_is_honoured(cn_spec):
-    """`--mask` 遮的是敏感标识（邮箱/手机号/姓名/属地），不含昵称。
-
-    昵称是用户自己选来公开的展示名，遮了只会让报告读不懂；
-    这条测试同时钉住"该遮的遮了"和"不该遮的没被顺手遮掉"。
-    """
-    cn_spec(fields=["nickname", "ip_location"])
-
-    plain = run((PROFILE_HTML, 200, None), results_info=make_results_info(mask=False))
-    masked = run((PROFILE_HTML, 200, None), results_info=make_results_info(mask=True))
-
-    plain_values = {item["field"]: item["value"] for item in plain["cn_evidence"]}
-    masked_values = {item["field"]: item["value"] for item in masked["cn_evidence"]}
-
-    assert plain_values["ip_location"] == "上海"
-    assert masked_values["ip_location"] == "上*"
-    # 昵称不脱敏
-    assert masked_values["nickname"] == plain_values["nickname"]
 
 
 # ---------------------------------------------------------------------------

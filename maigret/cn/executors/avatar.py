@@ -120,7 +120,6 @@ async def attach_avatar_evidence(
     fields,
     html: str,
     base_url: str = "",
-    masked: bool = False,
     timeout: float = DEFAULT_TIMEOUT,
 ) -> Optional[str]:
     """把头像指纹挂到结果里。返回十六进制哈希串，没拿到就 None。
@@ -158,5 +157,5 @@ async def attach_avatar_evidence(
         source=f"头像 {url}",
         confidence=0.8,
     )
-    results_info.setdefault("cn_evidence", []).append(entry.to_dict(masked=masked))
+    results_info.setdefault("cn_evidence", []).append(entry.to_dict())
     return value

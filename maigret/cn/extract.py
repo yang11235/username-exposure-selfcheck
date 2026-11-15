@@ -14,9 +14,6 @@
 
 抽取失败时**返回空列表**，不返回"猜测值"。这一层最坏的失败不是漏抽，
 而是抽出一个错的——用户会照着错的信息去改密码、去申诉。
-
-脱敏（`--mask`）默认关闭：本项目不做分享（文档 §1.2③），自己看自己的数据
-没必要遮。开关只用于截图/录屏场景。
 """
 
 import json
@@ -87,59 +84,16 @@ class Evidence:
         if not self.risk:
             self.risk = RISK.get(self.field, 2)
 
-    def masked(self) -> str:
-        return mask(self.value, self.field)
-
-    def to_dict(self, masked: bool = False) -> Dict[str, Any]:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "field": self.field,
             "label": LABELS.get(self.field, self.field),
-            "value": self.masked() if masked else self.value,
+            "value": self.value,
             "source": self.source,
             "confidence": round(self.confidence, 2),
             "risk": self.risk,
             "partial": self.partial,
         }
-
-
-# ---------------------------------------------------------------------------
-# 脱敏
-# ---------------------------------------------------------------------------
-def mask(value: str, field_name: str = "") -> str:
-    """按字段类型脱敏。规则见文档 §5.6。
-
-    宁可遮多不可遮少：截图/录屏场景下漏一个字符就可能泄露完整手机号。
-    """
-    value = value or ""
-    if not value:
-        return ""
-
-    if field_name == "email" or ("@" in value and field_name != "phone"):
-        local, _, domain = value.partition("@")
-        if domain:
-            keep = local[:2] if len(local) > 2 else local[:1]
-            return f"{keep}***@{domain}"
-
-    if field_name == "phone":
-        digits = re.sub(r"\D", "", value)
-        if len(digits) >= 7:
-            return f"{digits[:3]}****{digits[-4:]}"
-        return "*" * len(value)
-
-    if field_name == "real_name":
-        # "张伟" → "张*"，"欧阳修远" → "欧**"
-        if len(value) <= 1:
-            return "*"
-        return value[0] + "*" * (len(value) - 1)
-
-    if field_name in ("ip_location", "company", "school"):
-        # 地区/单位只遮一半，保留可读性（"杭州"→"杭*"）
-        if len(value) <= 1:
-            return "*"
-        return value[0] + "*" * (len(value) - 1)
-
-    # 其他（昵称、简介、头像哈希）：不做处理，它们本身不是敏感标识
-    return value
 
 
 # ---------------------------------------------------------------------------
@@ -571,7 +525,7 @@ def dedupe(items: List[Evidence]) -> List[Evidence]:
     return list(best.values())
 
 
-def summarize(items: List[Evidence], masked: bool = False) -> List[Dict[str, Any]]:
+def summarize(items: List[Evidence]) -> List[Dict[str, Any]]:
     """按风险等级降序输出，便于报告直接渲染（高危在前）。"""
     ordered = sorted(dedupe(items), key=lambda e: (-e.risk, -e.confidence, e.field))
-    return [item.to_dict(masked=masked) for item in ordered]
+    return [item.to_dict() for item in ordered]

@@ -75,8 +75,6 @@ DEFAULT_ARGS: Dict[str, Any] = {
     'resume': None,
     # 响应转储默认关闭：会把每个站点的原始响应写盘，只用于排查规则
     'dump_response': False,
-    # 证据脱敏默认关闭：自己看自己的报告，遮了只会更难读
-    'mask': False,
     # 自查结论默认开启：这是本分支的核心产出，不加参数时也应该看到
     'cn_summary': True,
     # 排除表两个来源默认都不配置：没有表时不排除任何结果
