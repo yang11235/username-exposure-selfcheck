@@ -1,414 +1,137 @@
-# Maigret
+# 用户名暴露自检
 
-<div align="center">
-  <div>
-    <a href="https://pypi.org/project/maigret/">
-        <img alt="PyPI version badge for Maigret" src="https://img.shields.io/pypi/v/maigret?style=flat-square" />
-    </a>
-    <a href="https://pepy.tech/project/maigret">
-      <img alt="Total downloads" src="https://static.pepy.tech/badge/maigret" />
-      <img alt="Downloads/month" src="https://static.pepy.tech/badge/maigret/month" />
-    </a>
-  </div>
-  <div>
-    <a href="https://github.com/soxoj/maigret">
-        <img alt="View count for Maigret project" src="https://komarev.com/ghpvc/?username=maigret&color=brightgreen&label=views&style=flat-square" />
-    </a>
-    <a href="https://github.com/soxoj/maigret">
-        <img alt="Minimum Python version required: 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-brightgreen?style=flat-square" />
-    </a>
-    <a href="https://github.com/soxoj/maigret/blob/main/LICENSE">
-        <img alt="License badge for Maigret" src="https://img.shields.io/github/license/soxoj/maigret?style=flat-square" />
-    </a>
-    <a href="https://maigret.readthedocs.io/">
-        <img alt="Maigret documentation" src="https://img.shields.io/readthedocs/maigret?style=flat-square&label=docs" />
-    </a>
-  </div>
-  <br>
-  <div>
-    <img src="https://raw.githubusercontent.com/soxoj/maigret/main/static/maigret.png" height="300" alt="Maigret logo"/>
-  </div>
-  <br>
-  <div>
-    <a href="https://codewiki.google/github.com/soxoj/maigret">
-        <img alt="Ask Code Wiki about Maigret" src="https://img.shields.io/badge/Code_Wiki-ask_about_repo-yellow?logo=googlegemini" />
-    </a>
-    <a href="https://deepwiki.com/soxoj/maigret">
-        <img alt="Ask DeepWiki about Maigret" src="https://img.shields.io/badge/DeepWiki-ask_about_repo-yellow" />
-    </a>
-  </div>
-  <br>
-  <div>
-    <b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.fr.md">Français</a>
-  </div>
-  <br>
-  <div>
-    📖 <a href="https://maigret.readthedocs.io/"><b>Documentation</b></a>
-  </div>
-  <br>
-</div>
+查清一个用户名在各平台留下了什么——重点是**中文站点**，以及**我自己的哪些信息已经公开**。
 
-**Maigret** collects a dossier on a person **by username only**, checking for accounts on a huge number of sites and gathering all the available information from web pages. No API keys required. **[AI profiling (demo)](#ai-analysis)**. 
+> 基于 [soxoj/maigret](https://github.com/soxoj/maigret) 的中文增强版。上游以 MIT 协议发布，本仓库保留原始 LICENSE 与版权声明。
+>
+> English: [README.en.md](README.en.md)（上游原文） · 上游的简体中文翻译: [README.zh-CN.md](README.zh-CN.md) · [Français](README.fr.md)
 
-## Sponsors
+本项目**只提供代码，不运营线上服务**。请在自己机器上部署使用。
 
-<div align="center">
-<a href="https://webvetted.com/maigret-osint?utm_source=github&utm_medium=sponsorship&utm_campaign=maigret1">
-<img src="https://github.com/user-attachments/assets/f7f0a27f-ed81-4f86-a3af-cbea7837b4cb" alt="WebVetted OSINT" width="500">
-</a>
-<br><br>
-<i><b>Go beyond account enumeration.</b> WebVetted turns an email or username into a complete identity investigation with deep OSINT enrichment, breach intel, AI analysis, and an interactive identity graph.</i><br>
-<a href="https://webvetted.com/maigret-osint?utm_source=github&utm_medium=sponsorship&utm_campaign=maigret"><b>Start an Investigation →</b></a>
-</div>
+---
 
-<br>
+## 它回答什么问题
 
-<p align="center">
-  <a href="https://www.rapidproxy.io/?ref=soxoj">
-    <img src="https://github.com/user-attachments/assets/4ed589d1-37cb-4a40-9273-bff4d6f1a514" width="500" alt="RapidProxy">
-  </a>
-</p>
+一个具体的问题：
 
-<p>
-  <a href="https://www.rapidproxy.io/?ref=soxoj"><b>RapidProxy</b></a> provides high-performance residential proxies for Twitter scraping, Selenium automation, and web data extraction. 90M+ IPs • Smart rotation • Anti-block • Non-expiring traffic. <br>
-<b>Special Offer</b>: Try it free — Plans from $0.65/GB. Use code <b>RAPID10</b> for 10% off.
-</p>
+> 我自己的手机号、真实姓名、单位、常驻地，在公开网络上能拼出多少？
 
-<p align="center">
-  <a href="https://www.thordata.com/?ls=dmt&lk=dmt">
-    <img src="https://github.com/user-attachments/assets/6d92bda0-c953-49b5-ab7e-73b0e67f17e2" width="350" alt="Thordata">
-  </a>
-</p>
+所以跑完除了上游那份「哪些站有这个用户名」的清单，还会多出一段自查结论：
 
-<p>
-  <a href="https://www.thordata.com/?ls=dmt&lk=dmt"><b>ThorData</b></a> provides residential proxies and web data APIs for OSINT research, username lookup, and search reconnaissance.
-Access <b>100M+ residential IPs</b> across <b>190+ countries</b> to reduce failed requests, 403 errors, and location-based restrictions. Use SERP API for structured search results or Web Scraper API to collect public web data.
-<br>
-<b>Special Offer:</b> Get a free 3-day trial and <b>10% OFF</b> with code <b>SOXOJ10</b>.
-</p>
+```
+自查结论：YOUR_USERNAME
+──────────────────────
+风险等级：中
 
-## Contents
+命中的证据
+  · 邮箱暴露，可被撞库
 
-- [In one minute](#in-one-minute)
-- [Main features](#main-features)
-- [Demo](#demo)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Contributing](#contributing)
-- [Commercial Use](#commercial-use)
-- [About](#about)
+证据明细
+  · 邮箱「you@example.com」— 来源：og:description · 置信度 0.70
 
-<a id="one-minute"></a>
-## In one minute
+本次未能判定
+  · 12 个站点需要登录才能判定（Bilibili、Weibo、Zhihu、Douban、Tieba 等）
+  · 3 个站点触发了风控，建议稍后重试（Xiaohongshu、SegmentFault、NGA）
+```
 
-Ensure you have Python 3.10 or higher.
+## 与上游的关系
+
+继承上游的：站点库（3000+ 站）、命令行、Web 界面、HTML/PDF/XMind/图谱报告、AI 摘要、代理与 Tor 支持。
+
+改动集中在 `maigret/cn/` 子包（约 7600 行，纯标准库实现，可脱离 maigret 运行时单独测试）。上游文件只在**接入点**上改动——`checking.py` 的判定钩子、`report.py` 的报告渲染、`web/` 的设置与结果页——判定逻辑与中文站点数据全部收在子包里，便于合并上游更新。
+
+## 主要改动
+
+| 改动 | 位置 | 说明 |
+|---|---|---|
+| 四字段判定协议 | `cn/verdict.py` | `e_code`/`e_string`/`m_code`/`m_string` 四项同时命中才下结论；顺序固定为「先判被打断，再判存在性」 |
+| 中文站点规则库 | `cn/data/sites_cn.json` | 人工策展，每条都带正反样本与实测日期 |
+| 平台字段抽取 | `cn/platforms/` | B 站、掘金、网易云、百度贴吧的接口字段抽取（性别、粉丝、账号年龄等） |
+| 风险分级 | `cn/risk.py` | 按字段组合给风险等级，**不给处置建议** |
+| 跨站身份归并 | `cn/identity.py` | 头像 pHash、主页互链、简介里的联系方式；置信度取簇内最弱的一条边 |
+| 中文 PDF | `cn/fonts.py` | 自动探测中文字体，找不到只警告不中断 |
+| 暗色图谱 | `cn/report.py` | 单文件自包含，节点按类型着色 |
+| 浏览器 Cookie | `cn/browser_cookies.py` | 通过 CDP 读取本机 Chrome 已登录的 Cookie，内存直用、不落盘（**仅 Web 端**） |
+| 站点健康自检 | `utils/cn_selfcheck.py` | 每日 CI 用真实网络验证每条规则，规则失效则报红 |
+
+## 安装
+
+需要 Python 3.10+。
 
 ```bash
-pip install maigret
-maigret YOUR_USERNAME
+git clone <本仓库地址>
+cd maigret
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# Linux / macOS
+source venv/bin/activate
+
+pip install -e .
 ```
 
-No install? Try the [community Telegram bot](https://maigret.app/readme-en) or a [Cloud Shell](#cloud-shells). 
+## 用法
 
-Want a web UI? See [how to launch it](#web-interface).
-
-See also: [Quick start](https://maigret.readthedocs.io/en/latest/quick-start.html). 
-
-## Main features
-
-- Supports 5,900 sites ([see full list](https://github.com/soxoj/maigret/blob/main/sites.md)). A default run checks the 500 highest-ranked sites by traffic; pass `-a` to scan everything, or `--tags` to narrow by category/country.
-- Embeddable in Python projects — import `maigret` and run searches programmatically (see [library usage](https://maigret.readthedocs.io/en/latest/library-usage.html)).
-- [Extracts](https://github.com/soxoj/socid_extractor) all available information about the account owner from profile pages and site APIs, including links to other accounts.
-- Performs recursive search using discovered usernames and other IDs.
-- Allows filtering by tags (site categories, countries).
-- Detects and partially bypasses blocks, censorship, and CAPTCHA.
-- Fetches an [auto-updated site database](https://maigret.readthedocs.io/en/latest/settings.html#database-auto-update) from GitHub each run (once per 24 hours), and falls back to the built-in database if offline.
-- Works with Tor and I2P websites; able to check domains.
-- Ships with a [web interface](#web-interface) for browsing results as a graph and downloading reports in every format from a single page.
-- Optional [AI analysis mode](#ai-analysis) (`--ai`) that turns raw findings into a short investigation summary using an OpenAI-compatible API.
-
-For the complete feature list, see the [features documentation](https://maigret.readthedocs.io/en/latest/features.html).
-
-### Used by
-
-Professional OSINT and social-media analysis tools built on Maigret:
-
-<a href="https://github.com/SocialLinks-IO/sociallinks-api"><img height="60" alt="Social Links API" src="https://github.com/user-attachments/assets/789747b2-d7a0-4d4e-8868-ffc4427df660"></a>
-<a href="https://sociallinks.io/products/sl-crimewall"><img height="60" alt="Social Links Crimewall" src="https://github.com/user-attachments/assets/0b18f06c-2f38-477b-b946-1be1a632a9d1"></a>
-<a href="https://usersearch.ai/"><img height="60" alt="UserSearch" src="https://github.com/user-attachments/assets/66daa213-cf7d-40cf-9267-42f97cf77580"></a>
-
-## Demo
-
-### Video
-
-<a href="https://asciinema.org/a/Ao0y7N0TTxpS0pisoprQJdylZ">
-  <img src="https://asciinema.org/a/Ao0y7N0TTxpS0pisoprQJdylZ.svg" alt="asciicast" width="600">
-</a>
-
-### Reports
-
-[PDF report](https://raw.githubusercontent.com/soxoj/maigret/main/static/report_alexaimephotographycars.pdf), [HTML report](https://htmlpreview.github.io/?https://raw.githubusercontent.com/soxoj/maigret/main/static/report_alexaimephotographycars.html)
-
-![HTML report screenshot](https://raw.githubusercontent.com/soxoj/maigret/main/static/report_alexaimephotography_html_screenshot.png)
-
-![XMind 8 report screenshot](https://raw.githubusercontent.com/soxoj/maigret/main/static/report_alexaimephotography_xmind_screenshot.png)
-
-[Full console output](https://raw.githubusercontent.com/soxoj/maigret/main/static/recursive_search.md)
-
-## Installation
-
-Already ran the [In one minute](#one-minute) steps? You're set. Below are alternative methods.
-
-Don't want to install anything? Use the [community Telegram bot](https://maigret.app/readme-en).
-
-### Windows
-
-Download `maigret_standalone.exe` from [Releases](https://github.com/soxoj/maigret/releases). You can launch it two ways:
-
-- **Double-click it** — Maigret will ask for a username, run a default search, and wait at the end so the report links stay visible.
-- **Run it from a terminal** — open Command Prompt (press `Win+R`, type `cmd`, hit Enter) or PowerShell to pass extra options:
-
-```cmd
-cd %USERPROFILE%\Downloads
-maigret_standalone.exe USERNAME
-maigret_standalone.exe USERNAME --html       :: also save an HTML report
-maigret_standalone.exe --help                :: list all options
-```
-
-Video guide: https://youtu.be/qIgwTZOmMmM.
-
-<a id="cloud-shells"></a>
-### Cloud Shells
-
-Run Maigret in the browser via cloud shells or Jupyter notebooks:
-
-<a href="https://console.cloud.google.com/cloudshell/open?git_repo=https://github.com/soxoj/maigret&tutorial=cloudshell-tutorial.md"><img src="https://user-images.githubusercontent.com/27065646/92304704-8d146d80-ef80-11ea-8c29-0deaabb1c702.png" alt="Open in Cloud Shell" height="50"></a>
-<a href="https://repl.it/github/soxoj/maigret"><img src="https://replit.com/badge/github/soxoj/maigret" alt="Run on Replit" height="50"></a>
-
-<a href="https://colab.research.google.com/gist/soxoj/879b51bc3b2f8b695abb054090645000/maigret-collab.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab" height="45"></a>
-<a href="https://mybinder.org/v2/gist/soxoj/9d65c2f4d3bec5dd25949197ea73cf3a/HEAD"><img src="https://mybinder.org/badge_logo.svg" alt="Open In Binder" height="45"></a>
-
-### Snap (Linux)
-
-<a href="https://snapcraft.io/maigret"><img src="https://snapcraft.io/static/images/badges/en/snap-store-black.svg" alt="Get it from the Snap Store" height="50"></a>
+命令行：
 
 ```bash
-sudo snap install maigret
-
-# usage
-maigret username
+python -m maigret 用户名                          # 默认扫描 + 自查结论
+python -m maigret 用户名 --pdf --graph            # 加 PDF 与图谱报告
+python -m maigret 用户名 --mask                   # 脱敏输出，截图前用
+python -m maigret 用户名 --site Baidu --site Juejin
 ```
 
-Available for amd64 and arm64, no Python required. The snap is strictly confined and can write inside your home directory, so run it from there. For USB drives, connect the interface once with `sudo snap connect maigret:removable-media`.
-
-### Local installation (pip)
+Web 界面：
 
 ```bash
-# install from pypi
-pip3 install maigret
-
-# usage
-maigret username
+python -m maigret --web 5000
 ```
 
-### From source
+打开 http://127.0.0.1:5000 。默认只监听 `127.0.0.1`。
 
-```bash
-# or clone and install manually
-git clone https://github.com/soxoj/maigret && cd maigret
+> **不要改成 `0.0.0.0`。** 这个版本没有鉴权、没有限流，所有人共用同一个 `/history` 页面，公开等于把所有人的查询记录摊开。
 
-# build and install
-pip3 install .
+常用开关：
 
-# usage
-maigret username
-```
+| 开关 | 作用 |
+|---|---|
+| `--no-cn-summary` | 关掉自查结论，输出回到上游原样 |
+| `--mask` | 脱敏邮箱、手机号、姓名、属地 |
+| `--dump-response` | 打印每个站点的完整响应（写规则时必需） |
+| `--cn-exclusions PATH` | 本地假阳性排除表 |
+| `--checkpoint` / `--resume PATH` | 中断后从检查点续跑 |
 
-### Docker
+环境变量 `MAIGRET_CN_VERDICT` 是整体回退开关：`0` 完全回到上游判定行为，`1`（默认）只接管策展过的中文站，`all` 接管全部站点。
 
-Two image variants are published:
+### 用本机浏览器的登录态
 
-- `soxoj/maigret:latest` — CLI mode (default)
-- `soxoj/maigret:web` — auto-launches the [web interface](#web-interface)
+中文站大量需要登录。Web 端设置面板有「从本机浏览器读取 Cookie」开关：它会连上本机已登录的 Chrome（CDP），把 Cookie 读进内存直接用，**不落盘、不写入任何文件**。取不到就退回 `cookies.txt`，再取不到就不带 Cookie 继续——不中断检索。
 
-```bash
-# official image (CLI)
-docker pull soxoj/maigret
+命令行目前没有对应参数，需要时用 `--cookies-jar-file` 手动指定。
 
-# CLI usage
-docker run -v /mydir:/app/reports soxoj/maigret:latest username --html
+## 边界
 
-# Web UI (open http://localhost:5000)
-docker run -p 5000:5000 soxoj/maigret:web
+**只用于自查，或已获得明确授权的调查。**
 
-# Web UI on a custom port
-docker run -e PORT=8080 -p 8080:8080 soxoj/maigret:web
+几条刻意的取舍：
 
-# manual build
-docker build -t maigret .                  # CLI image (default target)
-docker build --target web -t maigret-web . # Web UI image
-```
+- **不给处置建议。** 平台隐私设置菜单几个月就改版一次，过期的指引比没有指引更坏——用户按图索骥找不到，会以为自己已经安全了。
+- **盲区必须显式出现。** 只报命中不提盲区，用户会以为「没查到的就是没有」。
+- **不做「查他人」的便利性设计。** 无批量、无目标列表导入、无任务队列。这是自查工具，不是调查工具。
+- **只访问个人主页。** 不做内容抓取、不遍历帖子、不翻评论。
 
-### Troubleshooting
+在中国大陆使用时，还需遵守《个人信息保护法》等相关规定。未经授权查询他人信息可能构成违法。
 
-Build errors? See the [troubleshooting guide](https://maigret.readthedocs.io/en/latest/installation.html#troubleshooting).
+上游的声明同样适用于本仓库：
 
-PDF reports (`--pdf`) are an optional extra — install with `pip install 'maigret[pdf]'`. They need system-level graphics libraries on Linux/macOS; see the [PDF reports section](https://maigret.readthedocs.io/en/latest/installation.html#optional-pdf-reports-maigret-pdf) for per-OS install steps.
+> For educational and lawful purposes only. You are responsible for complying with all applicable laws (GDPR, CCPA, etc.) in your jurisdiction. The authors bear no responsibility for misuse.
 
-## Usage
+## 文档
 
-### Examples
+- [中文站点规则编写指南](docs/cn-rules.md)——怎么给一个中文站写一条能用的规则，以及六类必错写法
+- [站点存活率看板](docs/cn-health.md)——每日自检生成，失效规则会自动降级
+- [部署与使用指南](docs/deploy.md)——Windows / Docker / 源码三种装法，命令行用法与常见故障
 
-```bash
-# make HTML, PDF, and XMind reports
-maigret user --html
-maigret user --pdf
-maigret user --xmind # legacy XML with a manifest for XMind 2022+ readers
+## 许可
 
-# machine-readable exports
-maigret user --json ndjson   # newline-delimited JSON (also: --json simple)
-maigret user --csv
-maigret user --txt
-maigret user --graph         # interactive D3 graph (HTML)
-maigret user --neo4j         # Neo4j Cypher script (graph database)
-
-# search on sites marked with tags photo & dating
-maigret user --tags photo,dating
-
-# search on sites marked with tag us
-maigret user --tags us
-
-# highlight sites whose page also mentions specific keywords
-maigret user --keywords python rust
-# keyword-matched sites are shown with "[++]" in bright green
-
-# search for three usernames on all available sites
-maigret user1 user2 user3 -a
-
-# AI-assisted investigation summary (needs OPENAI_API_KEY)
-maigret user --ai
-```
-
-`--neo4j` writes a `*_neo4j.cypher` script of the results graph; import it with `cypher-shell -u neo4j -p <password> < report_user_neo4j.cypher` or paste it into the Neo4j Browser. Re-imports are idempotent. See the [Neo4j export docs](https://maigret.readthedocs.io/en/latest/command-line-options.html#neo4j-export).
-
-Run `maigret --help` for all options. Docs: [CLI options](https://maigret.readthedocs.io/en/latest/command-line-options.html), [more examples](https://maigret.readthedocs.io/en/latest/usage-examples.html). Running into 403s or timeouts? See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
-
-<a id="web-interface"></a>
-### Web interface
-
-Maigret has a built-in web UI with a results graph and downloadable reports.
-
-Don't want to run it yourself? Deploy the published `soxoj/maigret:web` Docker image as a hosted app in one click:
-
-<a href="https://render.com/deploy?repo=https://github.com/soxoj/maigret&path=utils/render.yaml"><img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" height="40"></a>
-
-Runs on Render's free tier (spins down after 15 min idle, spins back up on the next request). No login is set up on the instance, so anyone with the URL can use it.
-
-<details>
-<summary>Web Interface Screenshots</summary>
-
-![Web interface: how to start](https://raw.githubusercontent.com/soxoj/maigret/main/static/web_interface_screenshot_start.png)
-
-![Web interface: results](https://raw.githubusercontent.com/soxoj/maigret/main/static/web_interface_screenshot.png)
-
-</details>
-
-```console
-maigret --web 5000
-```
-
-Open http://127.0.0.1:5000, enter a username, and view results.
-
-### Python library
-
-**Maigret can be embedded in your own Python projects.** The CLI is a thin wrapper around an async function you can call directly — build custom pipelines, feed results into your own tooling, or run it inside a larger OSINT workflow.
-
-See the full [library usage guide](https://maigret.readthedocs.io/en/latest/library-usage.html) for a working example, async patterns, and how to filter sites by tag.
-
-### Useful CLI flags
-
-- `--parse URL` — parse a profile page, extract IDs/usernames, and use them to kick off a recursive search.
-- `--permute` — generate likely username variants from two or more inputs (e.g. `john doe` → `johndoe`, `j.doe`, …) and search for all of them.
-- `--self-check [--auto-disable]` — verify `usernameClaimed` / `usernameUnclaimed` pairs against live sites for maintainers auditing the database.
-- `--ai` / `--ai-model` — run the [AI analysis](#ai-analysis) over the search results and stream a short investigation summary to the terminal.
-
-<a id="ai-analysis"></a>
-### AI analysis
-
-[![asciicast](https://asciinema.org/a/979404.svg)](https://asciinema.org/a/979404)
-
-`--ai` collects the search results, builds an internal Markdown report, and sends it to an OpenAI-compatible chat completion endpoint to produce a short, neutral investigation summary (likely real name, location, occupation, interests, languages, confidence, follow-up leads). Per-site progress is suppressed and the model's output is streamed to stdout.
-
-```bash
-export OPENAI_API_KEY=sk-...
-maigret user --ai
-
-# pick a different model
-maigret user --ai --ai-model gpt-4o-mini
-```
-
-The key can also be set as `openai_api_key` in `settings.json`. The endpoint defaults to `https://api.openai.com/v1`, but `openai_api_base_url` in `settings.json` can point to any OpenAI-compatible API (Azure OpenAI, OpenRouter, a local server, …). See the [settings docs](https://maigret.readthedocs.io/en/latest/settings.html) for the full list of options.
-
-### Tor / I2P / proxies
-
-Maigret can route checks through a proxy, Tor, or I2P — useful for `.onion` / `.i2p` sites and for bypassing WAFs that block datacenter IPs.
-
-```bash
-# any HTTP/SOCKS proxy
-maigret user --proxy socks5://127.0.0.1:1080
-
-# Tor (default gateway socks5://127.0.0.1:9050)
-maigret user --tor-proxy socks5://127.0.0.1:9050
-
-# I2P (default gateway http://127.0.0.1:4444)
-maigret user --i2p-proxy http://127.0.0.1:4444
-```
-
-Start your Tor / I2P daemon before running the command — Maigret does not manage these gateways.
-
-### Cloudflare bypass
-
-> **Experimental.** The Cloudflare webgate is under active development; the configuration schema, CLI behaviour, and the set of routed sites may change without backwards-compatibility guarantees.
-
-A subset of sites in the database require a real browser to solve a JavaScript challenge. Maigret can offload these checks to a local [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) instance:
-
-```bash
-docker run -d -p 8191:8191 --name flaresolverr ghcr.io/flaresolverr/flaresolverr:latest
-maigret --cloudflare-bypass <username>
-```
-
-The bypass is opt-in (`--cloudflare-bypass` or `cloudflare_bypass.enabled` in `settings.json`) and only fires for sites whose `protection` field matches. See the [feature docs](https://maigret.readthedocs.io/en/latest/features.html#cloudflare-bypass) for backend options and configuration.
-
-## Contributing
-
-Add or fix new sites surgically in `data.json` (no `json.load`/`json.dump`), then run `./utils/update_site_data.py` to regenerate `sites.md` and the database metadata, and open a pull request. For more details, see the [CONTRIBUTING guide](https://github.com/soxoj/maigret/blob/main/CONTRIBUTING.md) and [development docs](https://maigret.readthedocs.io/en/latest/development.html). Release history: [CHANGELOG.md](CHANGELOG.md).
-
-## Commercial Use
-
-The open-source Maigret is MIT-licensed and free for commercial use without restriction — but site checks break over time and need active maintenance.
-
-For serious commercial use — with a **daily-updated site database** or a **username-check API** — reach out: 📧 [maigret@soxoj.com](mailto:maigret@soxoj.com)
-
-- Private site database — 5 000+ sites, updated daily (separate from the public open-source database)
-- Username check API — integrate Maigret into your product
-
-## About
-
-### Disclaimer
-
-**For educational and lawful purposes only.** You are responsible for complying with all applicable laws (GDPR, CCPA, etc.) in your jurisdiction. The authors bear no responsibility for misuse.
-
-### Feedback
-
-[Open an issue](https://github.com/soxoj/maigret/issues) · [GitHub Discussions](https://github.com/soxoj/maigret/discussions) · [Telegram](https://t.me/soxoj)
-
-### SOWEL classification
-
-OSINT techniques used:
-- [SOTL-2.2. Search For Accounts On Other Platforms](https://sowel.soxoj.com/other-platform-accounts)
-- [SOTL-6.1. Check Logins Reuse To Find Another Account](https://sowel.soxoj.com/logins-reuse)
-- [SOTL-6.2. Check Nicknames Reuse To Find Another Account](https://sowel.soxoj.com/nicknames-reuse) 
-
-### License
-
-MIT © [Maigret](https://github.com/soxoj/maigret)
+MIT，与上游一致。详见 [LICENSE](LICENSE)。

@@ -39,7 +39,7 @@
   </div>
   <br>
   <div>
-    <a href="README.md">English</a> · <b>简体中文</b> · <a href="README.fr.md">Français</a>
+    <a href="README.en.md">English</a> · <b>简体中文</b> · <a href="README.fr.md">Français</a>
   </div>
   <br>
   <div>
