@@ -105,9 +105,23 @@ python -m maigret --web 5000
 
 ### 用本机浏览器的登录态
 
-中文站大量需要登录。Web 端设置面板有「从本机浏览器读取 Cookie」开关：它会连上本机已登录的 Chrome（CDP），把 Cookie 读进内存直接用，**不落盘、不写入任何文件**。取不到就退回 `cookies.txt`，再取不到就不带 Cookie 继续——不中断检索。
+中文站大量需要登录。有两种拿登录态的方式：
 
-命令行目前没有对应参数，需要时用 `--cookies-jar-file` 手动指定。
+**推荐：浏览器扩展导出 cookies.txt，上传到设置页。** 一次导出全部站点，
+不用逐站导。完整步骤见 [导出 Cookie 的操作步骤](docs/cookies.md)。
+
+**备选：从本机 Chrome 直接读（CDP）。** 设置面板有「从本机浏览器读取 Cookie」开关，
+连上 Chrome 把 Cookie 读进内存直接用，不落盘。但 **Chrome 136 起默认用户目录
+禁止开远程调试**（`DevTools remote debugging requires a non-default data directory`），
+所以这条路在常见环境下走不通——要么用独立 profile 重新登录一遍，
+要么给系统加 `RemoteDebuggingAllowed` 策略（需管理员）。
+
+两种来源都是取不到就退回 `cookies.txt`，再取不到就不带 Cookie 继续——不中断检索。
+
+命令行用 `--cookies-jar-file` 手动指定导出好的文件。
+
+> 注意「有 cookie」和「已登录」是两件事：`BAIDUID` 是访客标识，
+> `BDUSS` 才是百度登录凭据。设置页的「检测」按钮会逐个站点告诉你到底登录了没有。
 
 ## 边界
 
