@@ -968,6 +968,54 @@ def api_browser_cookies():
     }, 200
 
 
+def _describe_cookie_coverage():
+    """已保存的 cookies.txt 解锁了哪些站，返回 (可判定, 仍缺)。
+
+    只看"有没有该站的登录凭据"——和 browser_cookies.detect_logins 同一套判据，
+    只是数据源换成磁盘上的 cookies.txt。
+
+    为什么值得做这个提示：用户按教程从扩展导出一份 cookie，可能只勾了
+    普通 cookie、漏了 httpOnly 的会话凭据。导入行为"成功"，检索却依然判不出来，
+    而界面上看不出差别。直接告诉他"缺 BDUSS，百度仍然查不了"才有用。
+    """
+    from maigret.cn.browser_cookies import LOGIN_MARKERS
+
+    present = set()
+    try:
+        for row in _cookie_rows_for_coverage():
+            present.add(row)
+    except Exception:  # noqa: BLE001 - 提示性功能，失败就不提示
+        return [], []
+
+    unlocked, missing = [], []
+    for key, (marker, label) in LOGIN_MARKERS.items():
+        if marker in present:
+            unlocked.append(label)
+        else:
+            missing.append(label)
+    # 缺的一栏太长会淹没重点，只报最常需要登录的几个站
+    priority = ['百度', '微博', '知乎', 'B站']
+    missing = [m for m in missing if m in priority]
+    return unlocked, missing
+
+
+def _cookie_rows_for_coverage():
+    """cookies.txt 里所有 cookie 的 name 集合（去掉 __Host-/__Secure- 前缀）。"""
+    from maigret.web.cookie_store import _rows
+
+    names = set()
+    for row in _rows():
+        parts = row.split("\t")
+        if len(parts) < 7:
+            continue
+        name = parts[5].strip()
+        for prefix in ("__Host-", "__Secure-"):
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+        names.add(name)
+    return names
+
+
 @app.route('/settings', methods=['POST'])
 def settings_update():
     save_settings(parse_settings_form(request.form))
@@ -977,7 +1025,19 @@ def settings_update():
         try:
             if looks_netscape(_text):
                 _n, _d = import_netscape(_text)
-                flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie。', 'success')
+                # 只说"导入 N 条"没有信息量：用户真正想知道的是**这些 cookie
+                # 解锁了哪些站**。没有登录凭据的 cookie（比如只有 BAIDUID）
+                # 导入再多也判不出账号。
+                unlocked, locked = _describe_cookie_coverage()
+                if unlocked:
+                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie；'
+                          f'可判定的站：{"、".join(unlocked)}。', 'success')
+                elif locked:
+                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie，'
+                          f'但里面没有 {"、".join(locked)} 的登录凭据——'
+                          f'这些站仍然判不出来。扩展导出时记得包含 httpOnly cookie。', 'warning')
+                else:
+                    flash(f'已导入 {_d} 个域名的 {_n} 条 Cookie。', 'success')
             elif _domain:
                 _n = save_cookies(_domain, _text)
                 flash(f'已保存 {_domain} 的 {_n} 个 Cookie。', 'success')

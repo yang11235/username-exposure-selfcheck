@@ -129,6 +129,7 @@ python -m maigret --web 5000
 ## 文档
 
 - [中文站点规则编写指南](docs/cn-rules.md)——怎么给一个中文站写一条能用的规则，以及六类必错写法
+- [导出 Cookie 的操作步骤](docs/cookies.md)——微博/知乎/小红书这些必须登录的站怎么用
 - [站点存活率看板](docs/cn-health.md)——每日自检生成，失效规则会自动降级
 - [部署与使用指南](docs/deploy.md)——Windows / Docker / 源码三种装法，命令行用法与常见故障
 
