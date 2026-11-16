@@ -1718,3 +1718,64 @@ def test_results_page_renders_cn_probe_from_job(client, web_app):
     escaped = json.dumps('SoXoJ', ensure_ascii=True)[1:-1]
     assert escaped in body
     assert 'renderCnProbe' in body
+
+
+def test_results_page_has_no_manual_cn_probe_button(client, web_app):
+    """补检已是检索的一部分，不该再留手动触发按钮。
+
+    留着的坏处不只是多余：Cookie 过期后点一次，会把原本正常的结果
+    覆盖成"没有搜到同名账号"，看起来像数据丢了。
+    """
+    # 必须造一条带 profile 的 individual_report：按钮在
+    # `{% if report.profile %}` 分支里，用空列表的话那块根本不渲染，
+    # 断言就成了恒真（这个坑踩过一次——变异测试没抓到）。
+    web_app.job_results['k2'] = {
+        'status': 'completed',
+        'session_folder': 'search_k2',
+        'usernames': ['soxoj'],
+        'graph_file': 'search_k2/graph.html',
+        'individual_reports': [{
+            'username': 'soxoj',
+            'csv_file': 'c', 'json_file': 'j', 'pdf_file': 'p', 'html_file': 'h',
+            'claimed_profiles': [],
+            'profile': {'accounts': 3, 'brief': '测试画像', 'fields': [],
+                        'first_seen': '', 'countries': []},
+            'clusters': [],
+        }],
+        'cn_probe': {'items': [], 'notes': []},
+    }
+
+    body = client.get('/results/search_k2').get_data(as_text=True)
+
+    assert 'cn-btn' not in body
+    # 断言按钮元素而不是文字：模板里有注释含"中文补检""重新补检"，
+    # 文字断言会把说明误判成按钮。
+    # 注意要找 `class="...` 前缀：按钮的 class 是
+    # `btn btn-sm btn-outline-info`，只搜 `btn-outline-info` 会因为
+    # 前面有 `btn-sm ` 而漏掉（这坑踩过一次）。
+    assert 'btn-outline-info' not in body
+    assert 'cn-btn' not in body
+    assert 'cn-out' in body          # 结果展示区还在
+    assert 'ai-btn' in body          # AI 分析按钮保留（按需调用模型，性质不同）
+
+
+def test_api_cn_probes_only_the_first_username(web_app, monkeypatch):
+    """按需补检接口要和自动补检口径一致：只看第一个用户名。
+
+    permute 会生成几十个变体，逐个补检把请求量放大到几百次，
+    而变体本来就不是真实的人。
+    """
+    probed = {}
+
+    async def fake_probe(usernames, browser_jar=None):
+        probed['got'] = list(usernames)
+        return [], []
+
+    monkeypatch.setattr(web_app, 'probe_platforms', fake_probe)
+    web_app.job_results['k4'] = {'usernames': ['first', 'second', 'third']}
+
+    # 成功路径返回单个 dict（Flask 视为 200），失败才返回 (dict, code) 元组
+    data = web_app.cn_probe('k4')
+
+    assert data.get('ok') is True
+    assert probed['got'] == ['first']

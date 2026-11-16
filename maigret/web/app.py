@@ -732,8 +732,9 @@ async def _stream_search(job, usernames, options):
     # 检索跑完接着跑中文平台补检（B 站搜索、微博）。
     #
     # 为什么放在这里而不是让用户再点一次按钮：补检本来就是这次检索的一部分，
-    # 分成两步只让人多操作一次，还容易忘记点。事件用 'cn' 推给前端，结果页
-    # 的「中文补检」按钮仍保留，用来重跑（Cookie 过期后重试的场景）。
+    # 分成两步只让人多操作一次，还容易忘记点。事件用 'cn' 推给前端；
+    # 结果页只展示、**不再提供手动重跑**——重跑会把过期后的空结果覆盖上去，
+    # 看起来像数据丢了。要重查就重导 Cookie 再跑一次检索。
     #
     # 放在 for 循环之后、且只看最后一个用户名：补检接口是按用户名搜人，
     # 多个用户名（尤其是 permute 生成的几十个变体）逐个补检会把请求量放大
@@ -1267,11 +1268,23 @@ def download_report(filename):
 
 @app.route('/api/cn/<job_id>', methods=['POST'])
 def cn_probe(job_id):
+    """按需重跑中文平台补检。
+
+    Web 界面**不再调用**这个接口：补检已经在检索结束时自动跑过，结果随
+    结果页一起渲染（见 `_stream_search` 末尾）。留这个路由是给脚本/命令行
+    用的（`curl -X POST localhost:5000/api/cn/<job_id>`）。
+
+    注意补检数量与自动补检保持一致：只看第一个用户名。permute 会生成几十个
+    变体，逐个补检会把请求量放大到几百次，而变体本来就不是真实的人。
+    """
     result = job_results.get(job_id)
     if not result:
         return {'error': '这次检索没有可用的结果'}, 404
 
-    usernames = result.get('usernames') or []
+    usernames = (result.get('usernames') or [])[:1]
+    if not usernames:
+        return {'ok': True, 'items': [], 'notes': ['没有可补检的用户名']}
+
     try:
         # 和检索共用同一个 Cookie 来源：用户在设置里勾了"从浏览器读取"时，
         # 补检也要用那份，否则会出现"检索带上了 Cookie、补检却说需要登录"。

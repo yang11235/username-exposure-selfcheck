@@ -239,7 +239,6 @@
                 <h3 class="mb-0">{{ report.username }} 的画像</h3>
                 <span class="text-muted">命中 {{ report.profile.accounts }} 个站点</span>
                 <button type="button" class="btn btn-sm btn-outline-warning ms-auto ai-btn" data-job="{{ timestamp }}">AI 分析</button>
-                <button type="button" class="btn btn-sm btn-outline-info ms-1 cn-btn" data-job="{{ timestamp }}">中文补检</button>
             </div>
             {% if report.profile.brief %}<p class="profile-brief">{{ report.profile.brief }}</p>{% endif %}
             <div class="profile-grid">
@@ -504,29 +503,5 @@ renderCnProbe(
 );
 {% endif %}
 
-document.querySelectorAll('.cn-btn').forEach(function (btn) {
-    btn.addEventListener('click', async function () {
-        const card = btn.closest('.profile-card');
-        const out = card.querySelector('.cn-out');
-        btn.disabled = true;
-        btn.textContent = '查询中…';
-        out.hidden = false;
-        out.textContent = '正在查询 B站、微博…';
-        try {
-            const resp = await fetch('/api/cn/' + btn.dataset.job, { method: 'POST' });
-            const data = await resp.json();
-            if (!data.ok) {
-                out.textContent = data.error || '补检失败';
-                return;
-            }
-            renderCnProbe(out, data.items, data.notes);
-        } catch (err) {
-            out.textContent = '请求失败：' + err;
-        } finally {
-            btn.disabled = false;
-            btn.textContent = '重新补检';
-        }
-    });
-});
 </script>
 {% endblock %}
