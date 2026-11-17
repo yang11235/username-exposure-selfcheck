@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import os.path as path
 import re
@@ -9,6 +10,8 @@ from typing import Dict
 from aiohttp import ClientSession, CookieJar
 
 from .db_updater import MAIGRET_HOME
+
+logger = logging.getLogger(__name__)
 
 
 class ParsingActivator:
@@ -186,7 +189,7 @@ class ParsingActivator:
 
 def import_aiohttp_cookies(cookiestxt_filename):
     cookies_obj = MozillaCookieJar(cookiestxt_filename)
-    cookies_obj.load(ignore_discard=True, ignore_expires=True)
+    _load_cookiejar_tolerant(cookies_obj, cookiestxt_filename, logger)
 
     cookies = CookieJar()
 
@@ -207,6 +210,81 @@ def import_aiohttp_cookies(cookiestxt_filename):
     cookies.update_cookies(cookies_list)
 
     return cookies
+
+
+def _load_cookiejar_tolerant(jar, filename, logger=None):
+    """读 Netscape cookies.txt，**不依赖系统默认编码**。
+
+    为什么不能直接 `jar.load()`：`http.cookiejar.CookieJar.load()` 内部是
+    `open(filename)`，没传 encoding，于是按 `locale.getpreferredencoding()`
+    解码。中文 Windows 上那是 **cp936(GBK)**——只要文件里有任何非 ASCII 字节
+    就炸：
+
+        UnicodeDecodeError: 'gbk' codec can't decode byte 0xb1 in position 33
+
+    而本项目的 Web 端写这个文件时用的是 **UTF-8**（`cookie_store._write`），
+    第二行注释就是中文。所以"Web 端导入过 Cookie"之后再去检索，必然在读
+    cookies.txt 这一步失败——错误还发生在扫描开始之前，看起来像"什么都
+    没查"。实测出错位置正好是第 33 字节，就是那句中文注释。
+
+    修法：自己按字节读进来，依次尝试 utf-8-sig / utf-8 / gb18030 解码，
+    再把解码后的文本交给 jar 的解析器。三个都要有：
+        utf-8-sig   带 BOM 的（某些编辑器/记事本"UTF-8 带 BOM"另存的）
+        utf-8       Web 端写的文件（当前主路径）
+        gb18030     用户手动用记事本以 ANSI 保存的（中文 Windows 常见），
+                    它是 gbk 的超集，能多认几个字
+
+    **utf-8-sig 必须排在 utf-8 前面。** `utf-8` 能"成功"解码带 BOM 的字节
+    （BOM 会被留成内容开头的 `\\ufeff`），于是永远不会走到 utf-8-sig 那一支。
+    而 jar 的解析器要求首行严格匹配 `# Netscape HTTP Cookie File`，
+    多一个 BOM 就直接判为"不是 Netscape 格式"→ LoadError。
+    实测这个顺序写反了，带 BOM 的文件会失败。
+
+    都失败时用 `errors="replace"` 兜底并告警：宁可丢掉几条读不出名字的
+    Cookie，也不能让整次检索因为一个文件编码问题直接失败。
+
+    **换行必须归一成 LF。** 标准库原来用文本模式 `open()` 读，会自动做
+    通用换行转换（CRLF→LF）；改成二进制读之后这个转换就没了，而
+    `http.cookiejar` 是按行切、按 `\\t` 分列，**不剥行尾的 `\\r`**。
+    于是 `\\r` 会被当成 cookie 值的一部分传下去，`Morsel.set()` 直接抛：
+
+        CookieError: Control characters are not allowed in cookies 'x' 'y\\r'
+
+    实测真实的浏览器导出文件就是 CRLF，所以这一步不是可有可无。
+    """
+    try:
+        raw = open(filename, "rb").read()
+    except OSError:
+        raise
+
+    text = None
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+
+    if text is None:
+        if logger:
+            logger.warning(
+                "Cookie 文件编码无法识别，已用替换字符强行解码：%s", filename
+            )
+        text = raw.decode("utf-8", errors="replace")
+
+    # 补回文本模式的通用换行转换（见 docstring：少了这步 `\r` 会进 cookie 值）
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # 交给 jar 自己的解析逻辑，但喂的是已经解码好的文本——
+    # 这样 `_really_load` 的字段校验、过期判断等行为与标准库完全一致。
+    import io
+
+    jar._really_load(  # noqa: SLF001 — 复用标准库解析，避免重写一套格式
+        io.StringIO(text),
+        filename,
+        ignore_discard=True,
+        ignore_expires=True,
+    )
 
 
 ACTIVATION_CACHE_PATH = path.join(MAIGRET_HOME, "activation.json")

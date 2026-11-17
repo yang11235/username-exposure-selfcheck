@@ -32,6 +32,8 @@ from maigret.web.cookie_store import (
     cookie_domains, import_netscape, looks_netscape, save_cookies,
 )
 from maigret.web.cn_probe import probe_platforms
+from maigret.cn.footprint import render as render_footprint
+from maigret.cn.footprint import to_ai_material
 from maigret.web.anchor import score_accounts
 from maigret.permutator import Permute
 from maigret.maigret import extract_ids_from_page
@@ -1298,6 +1300,105 @@ def cn_probe(job_id):
         return {'error': f'补检失败：{exc}'}, 502
 
     return {'ok': True, 'items': items, 'notes': notes}
+
+
+def claimed_pages_from_report(result: Dict[str, Any], limit: int = 20):
+    """从 Web 端的结果结构里取出"已确认账号的主页"。
+
+    注意这里取的是 `individual_reports[*].claimed_profiles`，
+    不是 `result['results']` —— **后者在 Web 端不存在**。
+    `build_reports()` 返回的是渲染用的结构（`individual_reports` /
+    `ai_input` / `found_count`…），原始站点结果没有放进返回值里。
+    一开始按 CLI 的 `results` 写，取到的永远是空，症状就是"痕迹检索
+    一条都没有、也不报错"。
+    """
+    pages = []
+    seen = set()
+    for report in (result.get('individual_reports') or []):
+        for item in (report.get('claimed_profiles') or []):
+            url = item.get('url') or ''
+            if not url.startswith('http'):
+                continue
+            # API 端点回的是 JSON，抽不出条目，白白消耗一次请求
+            host = urlparse(url).netloc.lower()
+            if host.startswith('api.') or '/api/' in url:
+                continue
+            if url in seen:
+                continue
+            seen.add(url)
+            pages.append((str(item.get('site_name') or host), url))
+            if len(pages) >= limit:
+                return pages
+    return pages
+
+
+@app.route('/api/footprint/<job_id>', methods=['POST'])
+def footprint_probe(job_id):
+    """按需跑公开痕迹检索。
+
+    为什么是"按需"而不是"检索结束时自动跑"（补检是自动的）：
+        补检打的是几个接口，请求量小；痕迹检索会去第三方论坛翻页，
+        请求量是它的十倍以上。那种事必须由用户按一下才发生。
+
+    只查第一个用户名，理由同 `cn_probe`：permute 生成的变体不是真实的人，
+    逐个深挖会把请求量放大到几百次。
+
+    读页面的边界、请求预算、被拦的处理，全部在 `cn/footprint.py` 里；
+    这个路由只负责取输入、调它、把结果递出去。
+    """
+    result = job_results.get(job_id)
+    if not result:
+        return {'error': '这次检索没有可用的结果'}, 404
+
+    usernames = (result.get('usernames') or [])[:1]
+    if not usernames:
+        return {'ok': True, 'summary': None, 'notes': ['没有可检索的用户名']}
+
+    payload = request.get_json(silent=True) or {}
+    forums = payload.get('forums') or None
+    threads = payload.get('threads') or None
+    try:
+        budget = int(payload.get('budget') or 60)
+    except (TypeError, ValueError):
+        budget = 60
+    # 上限夹在 1..200：前端传个 100000 进来，等于让用户在不知情的情况下
+    # 对着别人服务器打一万次请求。
+    budget = max(1, min(budget, 200))
+
+    # 已确认账号的主页：不需要"发现"，结果里就有。不传的话，
+    # 用户看到的就只有几个论坛资料页——那点内容没法分析。
+    pages = claimed_pages_from_report(result)
+
+    try:
+        summary = asyncio.run(_run_footprint(usernames[0], forums, threads, budget, pages))
+    except Exception as exc:
+        logging.error(f'Footprint search failed for {job_id}: {exc}')
+        return {'error': f'痕迹检索失败：{exc}'}, 502
+
+    return {
+        'ok': True,
+        'summary': summary,
+        'text': render_footprint(summary),
+        'ai_material': to_ai_material(summary),
+    }
+
+
+async def _run_footprint(username, forums, threads, budget, pages=()):
+    import aiohttp
+
+    from maigret.cn.footprint import search_footprints
+
+    # trust_env=False：走干净会话，不继承环境里的代理设置，
+    # 与其他执行器（executors/search.py）同一口径。
+    async with aiohttp.ClientSession(trust_env=False) as session:
+        return await search_footprints(
+            username,
+            session,
+            sites=forums or None,
+            seed_urls=threads or (),
+            pages=pages,
+            max_requests=budget,
+        )
 
 
 if __name__ == '__main__':

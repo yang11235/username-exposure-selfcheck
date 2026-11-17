@@ -302,3 +302,196 @@ def test_m_empty_does_not_excuse_a_missing_presence_string():
     """m_empty 只放行反例侧。存在侧仍然必须有判据，否则规则对"存在"毫无证据。"""
     with pytest.raises(SchemaError):
         validate_site("Baidu", _valid_site(e_string="", m_string="", m_empty=True))
+
+
+# ---------------------------------------------------------------------------
+# 规则库整体体检（读真实 sites_cn.json）
+# ---------------------------------------------------------------------------
+def _load_cn_sites():
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "maigret" / "cn" / "data" / "sites_cn.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    return doc["sites"]
+
+
+def test_sites_cn_all_entries_pass_schema():
+    """规则库每一条都要能通过校验。
+
+    单独跑这条是因为 `validate_sites` 会把整库一次性读进来——
+    一条坏规则会让整个中文规则库加载失败，用户看到的是"中文站全都查不到"。
+    """
+    sites = _load_cn_sites()
+    parsed = {}
+    failures = []
+    for name, raw in sites.items():
+        try:
+            parsed[name] = validate_site(name, raw)
+        except SchemaError as exc:
+            failures.append(f"{name}: {exc}")
+    assert not failures, "以下规则未通过校验：\n" + "\n".join(failures)
+    assert_four_fields(parsed)
+
+
+def test_baidu_does_not_use_the_no0_criterion():
+    """贴吧的判据不能回到 `"no":0`。
+
+    `docs/retrieval-analysis.md` §3 记过一种 74 字节降级响应：
+
+        {"no":0,"error":"成功","data":{"tb_vip":false,"followed_count":0}}
+
+    含 `"no":0`、不含 `"data":[]` —— 按旧判据会把**任何用户名**判成 Claimed。
+    当时一次性跑 22 条中文规则，前 4 条全落这个形态，得到 4 个假阳性。
+
+    这条测试盯着"别改回去"，因为改回去不会报错，只会让命中数虚高。
+    """
+    sites = _load_cn_sites()
+    spec = sites.get("Baidu")
+    assert spec is not None
+    assert '"no":0' not in (spec.get("e_string") or "")
+    assert spec.get("e_string") == '"name_show":'
+
+
+def test_cnblogs_uses_www_host():
+    """博客园必须用 www 域名。
+
+    实测 `https://cnblogs.com/{account}`（无 www）会 **301**，
+    按状态码判会得到"既不是存在也不是不存在"（UNKNOWN）。
+    改用 www 后正反完全分离：存在 200/39653，不存在 404/1074。
+    """
+    sites = _load_cn_sites()
+    spec = sites.get("cnblogs.com")
+    assert spec is not None
+    assert spec["uri_check"].startswith("https://www.cnblogs.com/")
+
+
+def test_discourse_rules_use_json_suffix():
+    """Discourse 规则必须打 `.json`，不要解析 HTML。
+
+    `.json` 后缀是 Discourse 自带的无鉴权接口：存在 200，不存在 404，
+    判据稳定。解析 HTML 要面对主题皮肤差异与前端渲染。
+    """
+    sites = _load_cn_sites()
+    # 判据是"用了 Discourse 的 .json 接口"，不是"必须是 /u/ 路径"。
+    # 2026-11-17 修正：其中两个站（openKylin、NebulaGraph）的 robots
+    # 含 `Disallow: /u/`，已改走同样被允许的 `/topics/created-by/<u>.json`——
+    # 那条响应里也带 `users[].username`，同样能判存在性。
+    # 所以这里匹配任意 `.json` 后缀的探测地址。
+    discourse = {
+        name: raw for name, raw in sites.items()
+        if (raw.get("uri_check") or "").endswith(".json")
+        or ".json?" in (raw.get("uri_check") or "")
+    }
+    # 10 是 2026-11-17 实测可用且 robots 允许、且走 .json 接口的中文 Discourse 站数量。
+    # （KubeSphere Community 也是 Discourse，但它的规则走 HTML 路径 /forum/u/，不计入。）
+    # 阈值写实际值而不是"随便写个整数"：写大了会在规则库健康时误红，
+    # 写小了则失去守护意义——它要盯的是"这些规则别被改成解析 HTML"。
+    assert len(discourse) >= 10, f"Discourse 规则只有 {len(discourse)} 条，覆盖偏少"
+    for name, raw in discourse.items():
+        assert raw.get("m_code") == 404, f"{name} 的不存在侧应当用 404"
+        assert raw.get("e_string"), f"{name} 缺少存在侧判据串"
+
+
+def test_no_rule_relies_on_two_char_marker():
+    """判据串不能只有 2 个字符。
+
+    schema 本身已经拦这个（≥3 字符），这里再整体扫一遍是因为
+    规则库是手工编辑的 JSON，有人可能绕过校验直接改文件。
+    实测踩过：GitLab 的 `/api/v4/users` 不存在时返回 `[]`（2 字节），
+    想拿它当 `m_string` 被 schema 拒绝——那条规则最终标成了 valid=false。
+    """
+    sites = _load_cn_sites()
+    offenders = []
+    for name, raw in sites.items():
+        for field in ("e_string", "m_string"):
+            value = raw.get(field) or ""
+            if value and len(value) < 3:
+                offenders.append(f"{name}.{field}={value!r}")
+    assert not offenders, "判据串过短：\n" + "\n".join(offenders)
+
+
+def test_cnblogs_and_gitee_have_real_existence_marker():
+    """这两条规则不能退回"纯状态码判"。
+
+    2026-11-17 独立评审发现：这两条的 `e_string` 原来是空的，只能靠状态码判，
+    于是**保留路径会被判成已注册账号**：
+
+        cnblogs  /admin → 200「用户中心 - 博客园」   → 判 Claimed（错）
+                 /about → 200「关于博客园」           → 判 Claimed（错）
+        gitee    /login → 200「登录 - Gitee.com」     → 判 Claimed（错）
+                 /help  → 200「Gitee 帮助中心」       → 判 Claimed（错）
+
+    后果是：用户名叫 `admin` / `login` 的人会看到一个假的"命中"，
+    而这类通用名恰恰是重名最严重的。
+
+    修法是给存在侧一个真实页面独有的标记：
+        cnblogs → `blog-sidecolumn`（真实博客页的区块 id）
+        gitee   → `git-nav-user-bar`
+
+    实测：4 个真实博客 / 3 个真实 Gitee 用户全部命中；上述保留路径全部不命中，
+    修正后落到 UNKNOWN（不是 Claimed）。
+
+    这条测试盯的是"存在侧判据串别被清空"——清空不会报错，
+    只会让保留路径重新变成假阳性。
+    """
+    sites = _load_cn_sites()
+    for name, marker in (("cnblogs.com", "blog-sidecolumn"), ("Gitee", "git-nav-user-bar")):
+        spec = sites.get(name)
+        assert spec is not None, f"{name} 不在规则库里"
+        assert spec.get("e_string"), f"{name} 的存在侧判据串为空（纯状态码判，保留路径会误报）"
+        assert spec["e_string"] == marker, f"{name} 的存在侧判据串被改成了 {spec['e_string']!r}"
+
+
+def test_no_valid_rule_relies_on_status_code_only():
+    """有效规则不应只靠状态码判。
+
+    纯状态码判会在两种场景出错：
+      1. 站点对**保留路径**（/admin、/login、/about、/help）返回 200
+         → 判成"账号存在"（cnblogs、Gitee 就是这么错的）
+      2. 站点对不存在的资源返回 200 软 404 → 同样判成存在
+
+    这不是绝对禁令：有的站确实两种响应只差状态码（如唯一状态码差异清晰时）。
+    这里只做**计数告警**——如果有效规则里纯状态码的占比过高，说明规则库质量在退化。
+    当前（2026-11-17）比例见下，阈值留出余量。
+    """
+    sites = _load_cn_sites()
+    valid = {n: r for n, r in sites.items() if r.get("valid")}
+    status_only = sorted(
+        n for n, r in valid.items()
+        if not (r.get("e_string") or r.get("e_strings"))
+    )
+
+    # 白名单 = 2026-11-17 独立评审时已知的遗留项，**每一条都带已知风险**。
+    # 它们大多是从上游继承的，尚未逐条补存在侧判据。
+    #
+    # 实测风险（模拟探测了 admin/login/about/help 四个保留名）：
+    #   Yuque      admin/login/about 均 200 → 3 个假阳性
+    #   Sina Blog  login/help 200         → 2 个假阳性
+    #   Ruby China login 200              → 1 个假阳性
+    #   OpenI      about 200              → 1 个假阳性
+    #   KubeSphere admin 200              → 1 个假阳性
+    #   Appinn     login 200              → 1 个假阳性
+    #   Moegirl    全 403（被风控）        → 无假阳性
+    #   AskTUG / v2ex  本机不可达          → 无假阳性
+    #   Bilibili(搜索) / NetEase(搜索)  走搜索接口，保留名前缀不适用
+    #
+    # 白名单的意义：**新加一条纯状态码规则会直接让这条测试变红**，
+    # 逼着加规则的人先想清楚"保留路径和软 404 会不会把它判成存在"。
+    # 这个列表只应缩短，不应加长。
+    KNOWN_STATUS_ONLY = {
+        # 2026-11-17 复核后仍保留纯状态码的：
+        #   KubeSphere Community —— 已验证安全：该站对不存在的名字（含 login/
+        #       about/help 这类保留词）全部返回 404，不存在保留路径误判。
+        #   AskTUG / v2ex.com —— 本机不可达，无法验证，保持原样。
+        #   Bilibili (搜索) / NetEase Music (搜索) —— 走搜索接口，
+        #       "保留路径"这个概念不适用。
+        "KubeSphere Community", "AskTUG", "v2ex.com",
+        "Bilibili (搜索)", "NetEase Music (搜索)",
+    }
+    unexpected = sorted(set(status_only) - KNOWN_STATUS_ONLY)
+    assert not unexpected, (
+        f"新增了未申报的纯状态码规则：{unexpected}\n"
+        "这些规则遇到保留路径（/admin、/login、/about、/help）或软 404 时会误报成\n"
+        "『账号存在』。请补一个存在侧判据串，或把它加进 KNOWN_STATUS_ONLY 并注明风险。"
+    )

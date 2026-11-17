@@ -10,7 +10,6 @@
 """
 
 import logging
-import os
 
 import pytest
 
@@ -56,7 +55,33 @@ def clean_env(monkeypatch):
     hook.reset_cache()
 
 
-def make_site(name="Weibo", raw=None):
+@pytest.fixture(autouse=True)
+def _take_over_all_sites(monkeypatch, clean_env):
+    # 显式依赖 clean_env：它会把环境变量删掉，必须让它先跑，否则本 fixture 白设
+    """本模块统一用 `MODE_ALL`：对所有站点接管判定，而不只是策展库里的那些。
+
+    为什么必须这样（2026-11-17）：本模块的夹具站原来叫 `Weibo`，
+    靠"它在策展库里"来触发接管。现在 `Weibo` 在规则库里是
+    `valid=false`（该站 robots 整站禁止），继续用这个名字会走进
+    "规则缺失"分支，测不到这些用例本来要测的通用判定逻辑。
+
+    换成一个策展库外的名字 + `MODE_ALL`：hook 会用**上游规则适配**出 spec
+    再接管，判定路径与夹具的意图完全一致。
+
+    个别用例需要别的模式时，在用例内部自己 `monkeypatch.setenv` 覆盖即可
+    （`test_mode_off_restores_upstream_behaviour` 就是这么做的）。
+    """
+    monkeypatch.setenv(hook.ENV_FLAG, hook.MODE_ALL)
+    # spec 有缓存，不清的话会把上一个用例在别的模式下算出的结果带过来
+    hook.reset_cache()
+
+
+def make_site(name="WeiboUpstreamSample", raw=None):
+    """构造一个站点对象。
+
+    默认名字**不在**策展库里（配合上面的 `MODE_ALL` fixture），
+    夹具数据仍是微博那套字段（`WEIBO_RAW`）。
+    """
     return MaigretSite(name, dict(raw or WEIBO_RAW))
 
 
@@ -74,8 +99,14 @@ def run(site, body, status=200, username="clairekuo"):
 # ---------------------------------------------------------------------------
 # 模式与接管范围
 # ---------------------------------------------------------------------------
-def test_default_mode_is_curated_only():
-    """默认必须只接管策展站点——全量替换 9500 个未验证规则风险太大。"""
+def test_default_mode_is_curated_only(monkeypatch):
+    """默认必须只接管策展站点——全量替换 9500 个未验证规则风险太大。
+
+    本模块的 autouse fixture 会设成 MODE_ALL（为了不依赖"Weibo 是否在策展库里"），
+    所以这条要显式还原成"什么都不设"的默认状态再断言。
+    """
+    monkeypatch.delenv(hook.ENV_FLAG, raising=False)
+    hook.reset_cache()
     assert hook.mode() == hook.MODE_CURATED
 
 
@@ -91,8 +122,13 @@ def test_valid_env_values_are_recognized(monkeypatch, value):
     assert hook.mode() in (hook.MODE_OFF, hook.MODE_CURATED, hook.MODE_ALL)
 
 
-def test_non_curated_site_is_not_taken_over():
-    """未策展站点必须完全走上游逻辑——这是"改动范围可控"的底线。"""
+def test_non_curated_site_is_not_taken_over(monkeypatch):
+    """未策展站点必须完全走上游逻辑——这是"改动范围可控"的底线。
+
+    这条要的是**默认模式**（1，只接管策展站），所以显式覆盖 autouse 的 MODE_ALL。
+    """
+    monkeypatch.setenv(hook.ENV_FLAG, hook.MODE_CURATED)
+    hook.reset_cache()
     site = make_site("SomeGlobalSite", NOT_CURATED_RAW)
     # 风控页：如果被接管会判 UNKNOWN，未接管则上游按 200 + presence 判 CLAIMED
     result = run(site, '访问过于频繁 profile_page')
@@ -244,10 +280,25 @@ def test_baidu_is_actually_reachable_by_the_default_scan():
 
     之前 Baidu 是 valid=false，而 augment_sites 的第一条过滤就是"valid=False
     的不并"，所以它在快速检索里**完全隐身**：不是"查了没查到"，是压根没查。
-    现在改用 `home/get/panel` 接口，存在侧 `"no":0`、反例侧 `"data":[]`，
-    四字段齐全，才谈得上进扫描。
+    现在改用 `home/get/panel` 接口，四字段齐全，才谈得上进扫描。
 
     同时锁住"这条规则要抽资料"：只判存在、不抽字段，用户看到的还是空白。
+
+    ## 2026-11-16 判据变更（这条断言跟着改，不是放宽）
+
+    原来断言 `e_string == '"no":0'`。`docs/retrieval-analysis.md` §3 记录过
+    一种 74 字节的**降级响应**：
+
+        {"no":0,"error":"成功","data":{"tb_vip":false,"followed_count":0}}
+
+    它含 `"no":0`，但不含 `"data":[]` —— 于是按旧判据，**任何用户名**都会被
+    判成 Claimed。当时一次性跑 22 条中文规则，前 4 条全部落到这个形态，
+    得到 4 个假阳性。文档里已经写明建议改成 `"name_show":`，但一直没改。
+
+    `name_show` 只在真实用户响应里出现（585/865/576/703/586 字节那批），
+    降级响应（74B）里没有。5 正 5 负实测 100% 分离。
+    这条断言现在盯的是"判据必须是 name_show"，因为换成 `"no":0` 就等于
+    重新打开那个批量误报。
     """
     from maigret.sites import MaigretDatabase
 
@@ -259,9 +310,11 @@ def test_baidu_is_actually_reachable_by_the_default_scan():
     spec = hook.spec_for(augmented["Baidu"])
     assert spec is not None and spec.valid is True
     # 两侧都要有字符串判据（同状态码 200，只能靠字符串分）
-    assert spec.e_string == '"no":0'
+    assert spec.e_string == '"name_show":'
     assert spec.m_string == '"data":[]'
     assert "gender" in spec.extract
+    # 明确禁止回到 "no":0 —— 它对降级响应会把任何用户名判成存在
+    assert '"no":0' not in (spec.e_string or "")
 
 
 def test_augment_sites_respects_default_include_flag():

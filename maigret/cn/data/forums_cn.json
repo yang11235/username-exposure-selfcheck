@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "公开痕迹检索用的论坛清单。每一条都是 2026-11-16 实测过的。",
+    "",
+    "收录标准（三条都要满足）：",
+    "  1. 匿名可读：不带 Cookie、不登录就能打开空间资料页",
+    "  2. 结构可判：是 Discuz（响应含 Powered by Discuz 或 home.php?mod=space），",
+    "     且「有这个人」与「没有这个人」两种响应能分开",
+    "  3. robots 未禁止：其 robots.txt 的 * 段没有 Disallow: / 或 Disallow: /home.php",
+    "",
+    "为什么只有这么几条：Discuz 站的实际存活率很低——一次抽测 20 个候选域名，",
+    "只有 3 个既活又是真 Discuz，其余是域名解析失败（ERR）、404、",
+    "或已改版成非 Discuz（返回的不是 Discuz 结构）。",
+    "把没验证过的域名写进来，用户看到的是「这个站查不到」，而不是「这个站没查」，",
+    "两者含义相反，正是本项目最不该犯的错。",
+    "",
+    "新增站点必须真打一次：用两个样本（一个真实存在、一个几乎不可能存在）",
+    "确认两种响应能分开，再写进来。缺 verified_at 的条目视为未验证。",
+    "",
+    "字段：",
+    "  host        域名",
+    "  label       给人看的名字",
+    "  verified_at 最近一次实测日期（YYYY-MM-DD）",
+    "  note        实测记下的注意事项"
+  ],
+  "forums": {
+    "bbs.newwise.com": {
+      "label": "壬天堂世界（游戏/卡牌）",
+      "verified_at": "2026-11-16",
+      "note": "Discuz! X5.0。空间资料页给出注册时间/最后访问/上次发表时间/在线时长。&authorid= 的「只看作者」视图一次返回该作者在该帖的全部楼层，且不响应 page 参数（连打 page=1/2/3 返回相同 pid 集合）。robots 的 * 段禁 /search.php /member.php，未禁 /home.php?mod=space 与 /thread-*。"
+    },
+    "bbs.wuyou.net": {
+      "label": "无忧启动（技术）",
+      "verified_at": "2026-11-16",
+      "note": "Discuz。对 maigret / yang11235 均返回「提示信息」即无此用户，与 newwise 的「有资料」形态可区分。"
+    },
+    "bbs.aptx.cn": {
+      "label": "事务所（动漫/柯南）",
+      "verified_at": "2026-11-16",
+      "note": "Discuz。同为「提示信息」形态，判定与 newwise 一致。"
+    },
+    "bbs.a9vg.com": {
+      "label": "A9VG 电玩部落",
+      "verified_at": "2026-11-16",
+      "note": "Discuz，17204 字节。「提示信息」形态判定有效。"
+    }
+  },
+  "_rejected": {
+    "_comment": "实测过但不能用的，留记录避免下一个人重复试。两批共抽测 60+ 个中文论坛域名",
+    "bbs.nga.cn": "404，空间页入口不存在",
+    "www.chiphell.com": "HTTP 567（自定义风控码）",
+    "www.52pojie.cn": "不是 Discuz 结构",
+    "bbs.pcbeta.com": "返回 1570 字节空壳，不是 Discuz",
+    "bbs.3dmgame.com": "不是 Discuz 结构",
+    "bbs.kaoyan.com": "200 但非 Discuz 结构",
+    "www.hupu.com": "非 Discuz，且体量过大",
+    "bbs.fengniao.com": "404",
+    "bbs.zol.com.cn": "404",
+    "bbs.gamersky.com": "404",
+    "bbs.duowan.com": "502",
+    "bbs.kafan.cn": "404",
+    "www.4d4y.com": "404",
+    "www.hi-pda.com": "200 但 511 字节空壳",
+    "bbs.saraba1st.com": "域名解析失败",
+    "bbs.south-plus.net": "域名解析失败",
+    "www.hostloc.com": "域名解析失败",
+    "forum.xitek.com": "域名解析失败",
+    "bbs.mydigit.cn": "域名解析失败",
+    "forum.51nb.com": "域名解析失败",
+    "bbs.tianya.cn": "域名解析失败",
+    "bbs.dospy.com": "域名解析失败",
+    "bbs.tgbus.com": "域名解析失败",
+    "bbs.178.com": "域名解析失败",
+    "bbs.aliyun.com": "域名解析失败",
+    "club.autohome.com.cn": "404",
+    "bbs.csdn.net": "404",
+    "bbs.hupu.com": "404",
+    "bbs.pceva.com.cn": "域名解析失败",
+    "www.tsdm39.com": "Discuz 但空间页返回「提示信息」，抽不到字段",
+    "www.55188.com": "200 但 637 字节，不是 Discuz"
+  }
+}

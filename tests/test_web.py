@@ -848,9 +848,18 @@ def test_fast_mode_includes_chinese_sites(web_app, monkeypatch):
 
     assert 'Yuque' in captured
     assert 'v2ex.com' in captured
-    # 站内搜索站点也要在默认清单里（B 站/网易云的昵称检索）
-    assert 'Bilibili (搜索)' in captured
+    # 站内搜索站点也要在默认清单里（昵称检索）
+    #
+    # 2026-11-17：`Bilibili (搜索)` 已标 valid=false（api.bilibili.com 的 robots
+    # 是整站 `Disallow: /`，见 sites_cn.json 里那条 _note），所以它**不该**再出现在
+    # 默认清单里。上面那两条断言换成"有效的中文站都在、被禁的不在"这一对，
+    # 才是这条测试真正要盯的东西。
     assert 'NetEase Music (搜索)' in captured
+    assert 'Bilibili (搜索)' not in captured, (
+        "Bilibili (搜索) 的 robots 整站禁止，不应进入默认扫描清单"
+    )
+    # 新增的 MediaWiki 类站点（2026-11-17 加的合规来源）
+    assert 'KCWiki 舰娘百科' in captured
 
 
 def test_explicit_site_list_is_not_augmented(web_app, monkeypatch):
@@ -1750,13 +1759,85 @@ def test_results_page_has_no_manual_cn_probe_button(client, web_app):
     assert 'cn-btn' not in body
     # 断言按钮元素而不是文字：模板里有注释含"中文补检""重新补检"，
     # 文字断言会把说明误判成按钮。
-    # 注意要找 `class="...` 前缀：按钮的 class 是
-    # `btn btn-sm btn-outline-info`，只搜 `btn-outline-info` 会因为
-    # 前面有 `btn-sm ` 而漏掉（这坑踩过一次）。
-    assert 'btn-outline-info' not in body
-    assert 'cn-btn' not in body
+    #
+    # 这里原本还断言 `btn-outline-info` 不出现，是当时那枚补检按钮的类名。
+    # 那条断言现在撤掉了：**公开痕迹**按钮（`footprint-btn`）用了同一个
+    # Bootstrap 语义类，类名不再是"补检按钮"的可靠替身。改用按钮自己的
+    # 类名 `cn-btn` 断言——它只属于补检按钮，不会被别的元素占用。
     assert 'cn-out' in body          # 结果展示区还在
     assert 'ai-btn' in body          # AI 分析按钮保留（按需调用模型，性质不同）
+
+
+def test_results_page_has_manual_footprint_button(client, web_app):
+    """公开痕迹按钮必须是**手动**的，且要和补检按钮有本质区别。
+
+    补检是自动的（打几个接口，代价小）；痕迹检索会去第三方站点翻页，
+    请求量是它的十倍以上，必须由用户按一下才发生。
+    两个按钮的存在理由相反，所以不能混淆——这也是上一条测试撤掉
+    类名替身断言时要一起说明的事。
+    """
+    web_app.job_results['k3'] = {
+        'status': 'completed',
+        'session_folder': 'search_k3',
+        'usernames': ['soxoj'],
+        'graph_file': 'search_k3/graph.html',
+        'individual_reports': [{
+            'username': 'soxoj',
+            'csv_file': 'c', 'json_file': 'j', 'pdf_file': 'p', 'html_file': 'h',
+            'claimed_profiles': [],
+            'profile': {'accounts': 3, 'brief': '测试画像', 'fields': [],
+                        'first_seen': '', 'countries': []},
+            'clusters': [],
+        }],
+    }
+
+    body = client.get('/results/search_k3').get_data(as_text=True)
+    assert 'footprint-btn' in body, "结果页必须给出手动触发入口"
+    assert 'footprint-out' in body, "要有一个结果容器供前端注入"
+    assert '检索公开痕迹' in body
+    # 不能自动跑：容器必须是空的且隐藏的（服务端不预渲染任何痕迹结果）。
+    # 不能断言 `fp-date` 不出现——那是内联 CSS 里的类名，恒真。
+    assert '<div class="footprint-out" hidden></div>' in body, (
+        "痕迹结果只能由用户点击后产生，不能随页面预渲染"
+    )
+
+
+def test_claimed_pages_from_report_reads_individual_reports(web_app):
+    """从 Web 端结果结构里取主页地址。
+
+    这里容易写错的地方是取 `result['results']` —— **Web 端没有这个键**，
+    `build_reports()` 返回的是渲染用结构（`individual_reports` 等）。
+    按 CLI 的字段写会取到空列表，症状是"痕迹检索一条都没有、也不报错"。
+    """
+    from maigret.web.app import claimed_pages_from_report
+
+    result = {
+        'individual_reports': [
+            {
+                'claimed_profiles': [
+                    {'site_name': 'GitHub', 'url': 'https://github.com/u'},
+                    {'site_name': '某API', 'url': 'https://api.example.com/u'},
+                    {'site_name': '重复', 'url': 'https://github.com/u'},
+                    {'site_name': '无地址', 'url': ''},
+                ]
+            }
+        ]
+    }
+    pages = claimed_pages_from_report(result)
+    assert pages == [('GitHub', 'https://github.com/u')], pages
+
+    # 没有 individual_reports 时返回空列表，不抛异常
+    assert claimed_pages_from_report({}) == []
+
+
+def test_claimed_pages_from_report_respects_limit(web_app):
+    from maigret.web.app import claimed_pages_from_report
+
+    profiles = [
+        {'site_name': f'S{i}', 'url': f'https://s{i}.example.com/u'} for i in range(30)
+    ]
+    pages = claimed_pages_from_report({'individual_reports': [{'claimed_profiles': profiles}]}, limit=5)
+    assert len(pages) == 5
 
 
 def test_api_cn_probes_only_the_first_username(web_app, monkeypatch):

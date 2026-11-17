@@ -139,6 +139,144 @@ async def test_import_aiohttp_cookies_does_not_invent_a_none_value(tmp_path):
     assert sent["consent"].value == ""
 
 
+# ---------------------------------------------------------------------------
+# 编码与换行：这两个问题都只在"非 UTF-8 默认编码的环境"或"CRLF 文件"下出现，
+# 而两种情况在真实用户那里是常态（中文 Windows + 浏览器导出）。
+# ---------------------------------------------------------------------------
+
+# Web 端 cookie_store._write 写出来的头就是这个样子：UTF-8 编码的中文注释。
+CHINESE_HEADER_COOKIES_TXT = (
+    "# Netscape HTTP Cookie File\n"
+    "# 由 Maigret Web 界面生成，可用浏览器扩展重新导出覆盖\n"
+    ".example.com\tTRUE\t/\tFALSE\t2147483647\tsessionid\tSESSION\n"
+)
+
+
+def _write_bytes(tmp_path, content, encoding, newline="\n"):
+    """按指定编码/换行写文件。
+
+    不用 `Path.write_text`：它按平台默认换行写（Windows 上是 CRLF），
+    没法精确构造"LF 文件"与"CRLF 文件"两种输入，而这两者都要测。
+    """
+    cookies_file = tmp_path / f"cookies_{encoding}_{newline.encode().hex()}.txt"
+    raw = content.replace("\n", newline).encode(encoding)
+    cookies_file.write_bytes(raw)
+    return str(cookies_file)
+
+
+@pytest.mark.asyncio
+async def test_load_cookiejar_tolerant_reads_utf8_chinese_comment(tmp_path):
+    """UTF-8 的中文注释不能把整份 cookie 读挂。
+
+    这是用户实际报的错：中文 Windows 上 `locale.getpreferredencoding()` 是
+    cp936，而标准库 `CookieJar.load()` 内部的 `open(filename)` 没传 encoding，
+    于是按 GBK 解 UTF-8 字节 →
+
+        UnicodeDecodeError: 'gbk' codec can't decode byte 0xb1 in position 33
+
+    报错位置正好是那句中文注释的第一个字节。后果很重：失败发生在扫描开始
+    **之前**，用户看到的是"什么都没查到"。
+    """
+    path = _write_bytes(tmp_path, CHINESE_HEADER_COOKIES_TXT, "utf-8")
+    cookie_jar = import_aiohttp_cookies(path)
+
+    sent = cookie_jar.filter_cookies(yarl.URL("http://www.example.com/"))
+    assert sent["sessionid"].value == "SESSION"
+
+
+def test_load_cookiejar_tolerant_matches_stdlib_on_plain_ascii(tmp_path):
+    """纯 ASCII 文件上，新写法与标准库结果必须一致。
+
+    否则就是"修了编码却改了行为"——那种改动比原 bug 更难发现。
+    """
+    path = _write_bytes(tmp_path, COOKIES_TXT, "utf-8")
+
+    from http.cookiejar import MozillaCookieJar
+
+    std = MozillaCookieJar(path)
+    std.load(ignore_discard=True, ignore_expires=True)
+
+    jar = MozillaCookieJar(path)
+    activation_cache._load_cookiejar_tolerant(jar, path)
+
+    assert {(c.domain, c.path, c.name, c.value) for c in std} == {
+        (c.domain, c.path, c.name, c.value) for c in jar
+    }
+
+
+@pytest.mark.asyncio
+async def test_load_cookiejar_tolerant_reads_gbk_file(tmp_path):
+    """用户用记事本以 ANSI（GBK）保存的文件也要能读。"""
+    path = _write_bytes(tmp_path, CHINESE_HEADER_COOKIES_TXT, "gb18030")
+    cookie_jar = import_aiohttp_cookies(path)
+
+    sent = cookie_jar.filter_cookies(yarl.URL("http://www.example.com/"))
+    assert sent["sessionid"].value == "SESSION"
+
+
+@pytest.mark.asyncio
+async def test_load_cookiejar_tolerant_strips_bom(tmp_path):
+    """带 BOM 的文件要与不带 BOM 的一样能读。
+
+    BOM 必须被吃掉：jar 的解析器要求首行严格等于
+    `# Netscape HTTP Cookie File`，多一个 `\\ufeff` 就直接判成
+    "不是 Netscape 格式"并抛 LoadError。
+
+    这条同时锁住解码顺序：`utf-8-sig` 必须排在 `utf-8` 前面。反过来的话，
+    `utf-8` 会"成功"解码并把 BOM 留成正文第一个字符，永远走不到 sig 那一支。
+    """
+    path = _write_bytes(tmp_path, CHINESE_HEADER_COOKIES_TXT, "utf-8-sig")
+    cookie_jar = import_aiohttp_cookies(path)
+
+    sent = cookie_jar.filter_cookies(yarl.URL("http://www.example.com/"))
+    assert sent["sessionid"].value == "SESSION"
+
+
+@pytest.mark.asyncio
+async def test_load_cookiejar_tolerant_handles_crlf(tmp_path):
+    """CRLF 文件不能让 `\\r` 进到 cookie 值里。
+
+    标准库用文本模式读，会自动做通用换行转换；改成二进制读之后这个转换
+    就没了，而 `http.cookiejar` 不剥行尾的 `\\r`，于是 `Morsel.set()` 抛：
+
+        CookieError: Control characters are not allowed in cookies
+
+    真实的浏览器导出文件就是 CRLF，所以这条不是凭空构造的场景。
+    """
+    path = _write_bytes(tmp_path, CHINESE_HEADER_COOKIES_TXT, "utf-8", newline="\r\n")
+    cookie_jar = import_aiohttp_cookies(path)
+
+    sent = cookie_jar.filter_cookies(yarl.URL("http://www.example.com/"))
+    assert sent["sessionid"].value == "SESSION", "值里混进了 \\r"
+    assert "\r" not in sent["sessionid"].value
+
+
+@pytest.mark.asyncio
+async def test_load_cookiejar_tolerant_empty_file(tmp_path):
+    """只有文件头的文件读成空 jar，不抛异常。
+
+    用户把某个域名的 cookie 全删掉之后就是这种状态，此时直接报错会挡住
+    整次检索。
+    """
+    path = _write_bytes(tmp_path, "# Netscape HTTP Cookie File\n", "utf-8")
+    cookie_jar = import_aiohttp_cookies(path)
+    assert len(cookie_jar) == 0
+
+
+def test_load_cookiejar_tolerant_rejects_non_cookie_file(tmp_path):
+    """不是 cookie 文件就照实报错，而不是静默当空 jar。
+
+    静默返回空 jar 的后果：用户以为"带上了 cookie"，实际一条没带，
+    检索结果全是没有登录态的——表现为"明明登录了却查不到东西"。
+    """
+    from http.cookiejar import LoadError, MozillaCookieJar
+
+    path = _write_bytes(tmp_path, "not a cookie file at all\n", "utf-8")
+    jar = MozillaCookieJar(path)
+    with pytest.raises(LoadError):
+        activation_cache._load_cookiejar_tolerant(jar, path)
+
+
 # ---- OnlyFans signing tests (pure-compute, no network) ----
 
 

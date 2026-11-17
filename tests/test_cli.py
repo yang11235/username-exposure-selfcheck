@@ -70,6 +70,12 @@ DEFAULT_ARGS: Dict[str, Any] = {
     'cloudflare_bypass': False,
     'keywords': [],
     'dns_resolver': 'async',
+    # 公开痕迹检索：默认关闭。它会对第三方站点发额外请求，
+    # 不该在用户没要求时发生——不加参数时行为与改动前完全一致。
+    'cn_footprint': False,
+    'cn_forums': None,
+    'cn_threads': None,
+    'cn_footprint_budget': 60,
     # 断点续查默认关闭：不加参数时行为与改动前完全一致
     'checkpoint': False,
     'resume': None,

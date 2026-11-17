@@ -432,3 +432,240 @@ python utils/cn_import.py --from maigret maigret/resources/data.json --dry-run
 | `utils/cn_selfcheck.py` | 规则自检（真打两次） |
 | `utils/cn_import.py` | 多格式导入/导出 |
 | `docs/cn-health.md` | 每日自检生成的存活率看板 |
+
+---
+
+## 8. 覆盖面现状与扩展方法（2026-11-16）
+
+### 8.1 现状
+
+```
+规则库        45 条
+  valid=true  33
+  valid=false 12   （QQ / CSDN / NGA / LeetCode CN / Chiphell /
+                    小红书 / 抖音 / 快手 / 脉脉 / 即刻 / 两个 GitLab 实例）
+```
+
+上游站点库里 `.cn` 域名站共 57 个，被本规则库覆盖 **13 个**。
+剩下 44 个里绝大多数是**真不可用**，不是没去找：
+
+| 情况 | 例子 | 结 |
+|---|---|---|
+| 已停用 / 域名解析失败 | `soundengine.cn`、`forum.mirrorship.cn` | 连不上 |
+| Flarum 等非标程序，无稳定判据 | `bbs.ncii.cn`、`fssiforum.ac.cn` | 未做 |
+| robots 禁止目标路径 | `cocoloop.cn`（`/u/`、`/topics/` 全禁） | 不做 |
+| 需要登录才能看资料页 | `bbs.mountblade.com.cn`（正反都回「提示信息」） | 不做 |
+| Gitea/GitLab 实例但正样本失效 | 4 个 Gitea、4 个 GitLab | 见 8.3 |
+
+**结论：中文站的存量就这么多，不是规则写少了。** 想再往上加，
+只能靠"新站出现"和"已有站改版成可判形态"，不是靠更努力地找。
+（2026-11-16 之前是 22 条 valid，这一轮扩到 33 条，多出来的 11 条全部来自
+逐站实测——其中 9 条是 Discourse、1 条 Gitea、1 条 InfoQ。
+同一轮里被否掉的候选有 20 多个，理由见 8.5。）
+
+### 8.2 一条实现覆盖一类站：Discourse
+
+这一轮新增的 11 条里，**9 条是 Discourse**。原因很实在：
+
+Discourse 把同一份 JSON 挂在每个页面的 `.json` 后缀上，不需要 API key：
+
+```json
+"uri_check":  "https://<host>/u/{account}.json",
+"uri_pretty": "https://<host>/u/{account}",
+"e_code":     200, "e_string": "\"username\"",
+"m_code":     404, "m_string": "",
+"extract":    ["nickname", "avatar"]
+```
+
+判定比解析 HTML 稳得多：存在 200 且含 `"username"`，不存在 404。
+而且 `extract` 声明后能自动抽到 `trust_level` / `created_at` / `views_count` /
+`badge_count` / `is_admin` 等字段（实测 3 个站全部命中）。
+
+写这类规则只有两个坑：
+
+1. **`system` / `admin` 是安装时自带的内置账号**，跨站普遍存在。
+   拿它们当 `known` 只能验证规则本身，**不能当成"某个人在这个站"**。
+   采集层（`cn/apis.py`）有 `DISCOURSE_RESERVED` 专门跳过这批名字。
+2. **robots 要逐路径核**。Discourse 默认 robots 里有 `Disallow: /u/`，
+   实测 13 个中文站里 4 个开着这条，但 `/topics/created-by/` 全部允许。
+   所以"这个站能不能查"不是布尔值，要看具体路径。
+
+### 8.3 批量套模板必然失败：GitLab / Gitea
+
+这两个都是"一套接口一个模板能覆盖多实例"，但实测都不能批量：
+
+**GitLab**（`/api/v4/users?username=`）：
+
+```
+6 个中文实例 → robots 允许的只有 2 个（其余 4 个开着默认的 Disallow: /api/v*）
+判据串只有 `[]`（2 字节）→ schema 拒绝（<3 字符必然误命中）
+                     → m_empty 也不适用（要求 0 字节，`[]` 是 2 字节）
+响应头 Content-Type / Content-Length / Link 正反完全一致，提供不了判据
+```
+
+**结论：这条规则写不出来。** 两个实例标成 `valid=false` 只为留记录，
+写上 `[]` 会让任何含 `[]` 的响应都判成"不存在"。
+
+**Gitea**（`/api/v1/users/<u>`）：
+
+```
+5 个中文实例 → 4 个没有 `admin` 用户（正样本直接失效）
+判据：存在 200 含 `"login":`，不存在 404 含 "user redirect does not exist"
+     → 只加了 gitea.starryskymeow.cn 一个
+```
+
+**这两条合起来是这一轮最重要的教训**：`docs/cn-rules.md` 开头写的
+"站点数不是资产，是负债"——批量套模板得到的规则里会有一半误判，
+比 33 条干净的更糟。
+
+### 8.4 防御性测试
+
+`tests/test_cn_schema.py` 新增 5 条，盯的都是**改回去不会报错、只会静默失准**的写法：
+
+| 测试 | 盯什么 |
+|---|---|
+| `test_sites_cn_all_entries_pass_schema` | 一条坏规则会让整个规则库加载失败（= 中文站全查不到） |
+| `test_baidu_does_not_use_the_no0_criterion` | 贴吧判据不能回到 `"no":0`（降级响应会批量误报） |
+| `test_cnblogs_uses_www_host` | 不能用无 www 域名（301 → UNKNOWN） |
+| `test_discourse_rules_use_json_suffix` | Discourse 规则别被改回解析 HTML |
+| `test_no_rule_relies_on_two_char_marker` | 判据串 ≥3 字符（GitLab 那条就是死在这） |
+
+### 8.5 本轮的实测否掉清单
+
+留在这里，免得下一个人重复试：
+
+```
+CSDN        blog.csdn.net/{u} 521 安全验证；CSDN 搜索 API 也 521
+LeetCode CN /u/{u} 正反都 200 且体积接近（110986 vs 102504），判不开
+Chiphell    space-uid 正反都 200、体积几乎相同（22212 vs 22220），软 404
+NGA         nuke.php 连不上
+酷安        /u/1、/u/2 都返回 400「出错了」，之前 u/1234567 的 200 是巧合
+segmentfault 正反都 468 + 同样 14743 字节
+InfoQ       只能按数字 profile id 查，用户名查不到（规则已加，标注清楚）
+```
+
+---
+
+## 9. 合规替代路径的排查（2026-11-17）
+
+### 9.1 结论先行
+
+对"robots 禁了主路径"的站，本轮的排查结果是：**微博、知乎、B 站三家没有任何合规替代**，
+只能标 `valid=false`。而**标准 API 类站点**（MediaWiki）反而是挖到的新增量。
+
+### 9.2 三家为什么没有替代
+
+方法：把同平台的其他域名也拉一遍 robots，按 RFC 9309 逐组判定。
+
+| 站 | 主路径 | 试过的替代 | 结果 |
+|---|---|---|---|
+| 微博 | `weibo.com/ajax/profile/info` | `m.weibo.cn`、`weibo.cn`、`card.weibo.com`、`passport.weibo.com` | `weibo.com` 与 `m.weibo.cn`、`weibo.cn` 的 `*` 组都是 `Disallow: /`；`m.weibo.cn` 的搜索接口实测 432 反爬 |
+| 知乎 | `www.zhihu.com/api/v4/members` | `api.zhihu.com`、`zhuanlan.zhihu.com`、`www.zhihu.com/tardis/jm` | 三个域名的 `*` 组都是 `Disallow: /`。`tardis/jm` 是 `*` 组唯一 Allow 的路径，但实测返回空壳 SPA（title 为空、1235 字节），没有用户信息 |
+| B 站 | `api.bilibili.com/x/web-interface/card` | `space.bilibili.com`、`www.bilibili.com`、`m.bilibili.com` | `api.` 与 `space.` 的 `*` 组都是 `Disallow: /`；`www.` 的 `*` 组**没有**整站禁止，但 `/space/{mid}` 返回 404（该域名下没有用户页）；`m.` 的 robots.txt 是 404（未设限），但 `/space/{mid}` 会 **302 跳到 `space.bilibili.com`**——实际访问的仍是被禁路径 |
+
+**`m.bilibili.com` 那条值得单记**：只看 robots 它"合规"（没文件=没限制），
+但跳转目标才是真正被访问的地址。**robots 判定要跟着重定向走**，
+否则很容易自己骗自己。
+
+### 9.3 新挖到的合规方法：MediaWiki API
+
+中文 wiki 生态几乎都是 MediaWiki，而它有**标准的、免鉴权的用户查询接口**：
+
+```
+/api.php?action=query&list=users&ususers=<用户名>&format=json
+```
+
+响应里 `"userid":N` = 账号存在，`"missing":""` = 不存在。两个都是 JSON 字段名，
+不随模板改版。实测 robots 的 `*` 组允许 `/api.php`。
+
+本轮据此修了 1 条、加了 2 条：
+
+| 站 | 状态 |
+|---|---|
+| 萌娘百科 `zh.moegirl.org.cn` | **修正**——原为纯状态码判，改用 API |
+| 舰娘百科 `zh.kcwiki.cn` | 新增 |
+| Mooncell `fgo.wiki` | 新增 |
+
+**这个方法的优点是没有"保留路径"歧义**。实测萌娘百科上 `login`/`admin`/`about`/`help`
+**都是真实注册用户**（`Login` userid 356821 等）——API 查的是用户表，
+所以"这个名字有没有人注册"这个问题它回答得完全准确；
+而路径探测法在这些名字上永远说不清。
+
+注意：用户名要 URL 编码（中文名、含空格的名字都需要）。
+
+### 9.4 顺带修掉的 6 条纯状态码规则
+
+它们和 cnblogs/Gitee 是同一类问题：`e_string` 为空 → 保留路径返回 200 时误报。
+
+| 站 | 处理 | 依据 |
+|---|---|---|
+| 语雀 | 补 `member_level` | 6 个真实命名空间全命中，10 个保留路径全不命中 |
+| 新浪博客 | 补 `ArtList.php` | laoxu/kaifulee 命中，`/login`(646B 空壳)、`/help`(409B) 不命中 |
+| Ruby China | 补 `data-login` | huacnlee/likai 命中，`/admin`（登录页）不命中 |
+| OpenI | 补 `IsOrganizationMember` + `member.svg` | 该站 `/{名字}` 既可能是组织页也可能是用户页，两类结构不同，所以两个判据任一命中 |
+| Appinn | 换成 Discourse `.json` | 它本来就是 Discourse，不必解析 HTML |
+| KubeSphere | **不动**（已验证安全） | Flarum，对不存在的名字（含 `login`/`about`/`help`/`register`）**全部返回 404**，没有保留路径问题 |
+
+### 9.5 一个反复出现的陷阱：`/admin` 可能是真人
+
+排查中三次遇到"看起来像保留路径、其实是真实账号"：
+
+- 语雀 `/admin` → 标题「Admin · 语雀」，是真实命名空间
+- Ruby China `/login` → 标题「login (qqslot228) · Ruby China」，是真实用户
+- KubeSphere `/admin` → Flarum API 精确匹配到 `username=admin`，是真实用户
+
+**所以"保留路径"不能靠名字猜，要逐个核实。** 用站点自己的 API（Flarum 的
+`/api/users?filter[q]=`、OpenI 的页面结构）交叉验证是最可靠的办法。
+反过来也一样：`Flarum` 的 `/api/users?filter[q]=a` 会返回 20 个用户（模糊匹配），
+**不能用作判据**——模糊匹配的 API 比状态码更危险。
+
+---
+
+## 10. 独立评审第二轮的 P1/P2 修复（2026-11-17）
+
+上一节记的是"合规与规则"层面的修复。这一节是**代码层**的，按风险从高到低。
+
+### 10.1 归因正确性（最高优先）
+
+| 位置 | 问题 | 修法 |
+|---|---|---|
+| `content._norm_name` | 去掉 `-` `_` `.` `·`，于是 `john.smith` 与 `johnsmith` 被判成同一人。它是 `same_author()` 的唯一判据，而那是"这层楼是不是他发的"的唯一防线 | 只保留大小写折叠与空白折叠；分隔符一律保留。**宽容的方向恰好是危险的方向** |
+| `content._walk_lists` | 只按"取最长的列表"选，而推荐位常常比本人内容更长，且键名落在通用的 `list`/`posts` 上 | 遍历时带**父键**，父键命中 `recommend`/`hot`/`related`… 的整棵子树跳过 |
+| `content._parse_generic_entries` | 日期窗口固定 ±200 字符，侧栏链接只要落在窗口内就继承本人条目的日期；侧栏内容也被收录 | 窗口切在**相邻日期之间**；再加一道"落在侧栏/推荐位容器内则跳过" |
+| `content.parse_tieba_posts` | "第 N 个作者配第 N 条正文"，页面上多一个引用的 `user_name` 就整体错位 | 只在**数量完全相等**时才配对；不等就一条都不配（上层丢弃 → 结果是"没读到"而不是"记错人"） |
+| `apis.collect_github` | 不校验返回的 `login`。GitHub 对被重命名/接管的旧名会 301 到新账号，于是整份数据都是别人的 | 加一次 `login` 逐字比对（Discourse 层早就做了） |
+
+### 10.2 "把没读到说成没有"
+
+| 位置 | 问题 | 修法 |
+|---|---|---|
+| `footprint.collect_from_thread` | `parse_thread` 返回 `None`（结构不认识）被静默当成"没有发言" | 单独计数，一页都没解析出来就返回 `unparsed` |
+| `footprint.to_ai_material` | 只看 `items`/`blocked`/`notes`，`unparsed` 不参与判断 → 只剩 `unparsed` 时返回空串，**AI 通道的盲区直接消失**（`render()` 却显示） | 把 `unparsed` 纳入判断与输出，两条通道对齐 |
+| `footprint.fetch` | `looks_blocked` 只认 503，500/502/504 落到 `ok`，站点错误页被当正常页面解析 | 其余 5xx 一律 `error` |
+
+### 10.3 预算与节流
+
+| 位置 | 问题 | 修法 |
+|---|---|---|
+| `apis` 网易云 | `_REQUESTS["collect_netease"]=3`，实际是 `1 + 2×同名账号数`，搜到 2 个就发 5 次，**超出预留且日志里看不见** | 加 `NETEASE_MAX_ACCOUNTS=3` 封顶，预留改成 `1 + 2×上限`。数字永远追不上实际，所以给实际加上界 |
+| `footprint.collect_from_apis` | `apis.py` 直接调 `session.get`，**绕过 `fetch()` 里的同域间隔**，"每个域名之间有间隔"的承诺只对 Discuz 站成立 | 加 `_PacedSession` 包装补间隔（预算已整轮预留，这里只补别连发） |
+
+### 10.4 其它
+
+- `apis.py` 删掉一段死代码：`collect_netease` 的 `return facts` 之后还挂着一整份旧的 `collect_all` 文档与实现（合并残留），永不执行且会误导维护
+- `content.Profile.is_empty()` 补上 `uid`/`online_hours`/`post_count`/`thread_count`/`signature`：昵称被模板差异吃掉的真实资料页原来会被判空 → 报"结构不认识"
+- `_extract_site_links` 改传**签名的原始 HTML**（原来传剥过标签的纯文本，`<a href>` 里的地址被一起剥掉，只有裸文本 URL 能活）
+
+### 10.5 测试有效性：三条"实现有 bug 仍通过"的用例
+
+这是这一轮最值得记的部分。评审专门查了"测试是不是只是在复述实现"，找出三条：
+
+| 测试 | 为什么假绿 | 改法 |
+|---|---|---|
+| `test_collect_from_thread_filters_other_authors` | 直接调 `_posts_to_footprints(..., only_author=True)`，而 bug 在**调用点**（传的是 `False`）。它测的是自己传进去的参数 | 桩掉 `parse_thread` 返回"本人+别人"两层楼，**走 `collect_from_thread` 的真实无 uid 路径** |
+| `test_requests_for_counts_every_collector` | 断言 `total == sum(_REQUESTS.values())` —— 用定义去验定义，写多少都通过 | 真跑一遍采集器（最坏情况桩），把**实际请求数**与预留比。实测 18 = 18 |
+| `test_discourse_requires_exact_username_match` | topics 是空列表，所以"边解析边写入、校验失败不撤回"这个 bug 完全测不到 | topics 填非空，断言"主题也一起被丢弃" |
+| `test_same_author` | 把过宽的归一化写成了**预期**（`yang 11235`、`yang_11235` 都当同一人） | 改成 `False` 并注明理由 |
+
+改完都做了**变异验证**：把 bug 注入回去，确认测试变红；还原后变绿。
+"注入必红"是这类测试唯一能自证有效的方式——不然只是换了个说法的假绿。

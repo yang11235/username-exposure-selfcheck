@@ -481,6 +481,42 @@ def setup_arguments_parser(settings: Settings):
         "Defaults to $MAIGRET_CN_EXCLUSIONS_URL.",
     )
     output_group.add_argument(
+        "--cn-footprint",
+        action="store_true",
+        dest="cn_footprint",
+        default=False,
+        help="Also retrieve public trace content (what the username actually "
+        "posted, with timestamps) from forums that allow anonymous reads. "
+        "Off by default: it makes extra requests to third-party sites. "
+        "Only public pages are read — no login bypass, no SERP scraping.",
+    )
+    output_group.add_argument(
+        "--cn-forum",
+        action="append",
+        dest="cn_forums",
+        default=None,
+        metavar="HOST",
+        help="Forum host to probe for traces (repeatable). Defaults to the "
+        "verified list in maigret/cn/data/forums_cn.json.",
+    )
+    output_group.add_argument(
+        "--cn-thread",
+        action="append",
+        dest="cn_threads",
+        default=None,
+        metavar="URL",
+        help="Thread URL to mine for this username's posts (repeatable). "
+        "This is how you feed it a lead you found yourself.",
+    )
+    output_group.add_argument(
+        "--cn-footprint-budget",
+        type=int,
+        dest="cn_footprint_budget",
+        default=60,
+        metavar="N",
+        help="Max page requests for the trace retrieval (default: 60).",
+    )
+    output_group.add_argument(
         "--print-not-found",
         action="store_true",
         dest="print_not_found",
@@ -710,6 +746,105 @@ def print_cn_summary(username: str, results: Dict[str, Any], table=None, logger=
     print()
     print(summary)
     return summary
+
+
+def claimed_pages(results: Dict[str, Any], limit: int = 20) -> list:
+    """从扫描结果里挑出"已确认账号的主页"，供痕迹检索用。
+
+    为什么会走到这一步：论坛帖子需要先找到 URL，而"列出某用户发过的帖子"
+    被 Discuz 服务端禁用（多个参数组合、多个站点一致）、搜索引擎结果页
+    被 robots 禁止（360 `Disallow: /s`、百度与 Bing `Disallow: /search`）。
+    也就是说**工具无法自己发现"他发过什么"**，但它知道"他在哪些站有账号"——
+    那些主页上的列表，是唯一不需要人肉找就能拿到的内容源。
+
+    只取 CLAIMED 的，且跳过明显没有列表的（如纯 API 地址）。
+    """
+    pages = []
+    seen = set()
+    for site_name, result in (results or {}).items():
+        status = result.get('status')
+        value = getattr(status, 'status', status)
+        value = getattr(value, 'value', value)
+        if str(value).lower() != 'claimed':
+            continue
+
+        url = result.get('url_user') or result.get('url_probe') or ''
+        if not url.startswith('http'):
+            continue
+        # API 端点回的是 JSON，抽不出条目，白白消耗一次请求
+        from urllib.parse import urlparse
+
+        host = urlparse(url).netloc.lower()
+        if host.startswith('api.') or '/api/' in url:
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        pages.append((str(site_name), url))
+        if len(pages) >= limit:
+            break
+    return pages
+
+
+async def print_cn_footprint(
+    username: str,
+    results=None,
+    forums=None,
+    threads=None,
+    budget: int = 60,
+    logger=None,
+) -> str:
+    """跑一轮公开痕迹检索并打印，返回打印出的文本（空串表示没打印）。
+
+    为什么单独一个函数而不是并进 `print_cn_summary`：
+        - 那个函数是**离线**的（只汇总已有结果），这个要**发网络请求**
+        - 两者失败代价不同：汇总失败只是少一段文字，检索失败可能是
+          请求打到了别人服务器上却没拿到东西。分开才好各自处理。
+        - 默认关闭。它会对第三方站点发额外请求，不该在用户没要求时发生。
+
+    是 async 的：调用点本身就在事件循环里（扫描主流程），
+    在里面 `asyncio.run()` 会直接抛 "cannot be called from a running event loop"。
+    """
+    logger = logger or logging.getLogger('maigret')
+
+    try:
+        from .cn.footprint import render, search_footprints
+    except ImportError as exc:  # pragma: no cover
+        logger.debug('痕迹检索模块不可用：%s', exc)
+        return ""
+
+    try:
+        import aiohttp
+
+        # 已确认账号的主页：不需要额外"发现"，扫描结果里就有。
+        # 这是没有种子 URL 时唯一的产出源，所以要显式传进去。
+        pages = claimed_pages(results or {})
+
+        # trust_env=False：走干净会话，不继承环境里的代理设置，
+        # 与其他执行器（executors/search.py）同一口径。
+        async with aiohttp.ClientSession(trust_env=False) as session:
+            summary = await search_footprints(
+                username,
+                session,
+                sites=forums or None,
+                seed_urls=threads or (),
+                pages=pages,
+                max_requests=max(1, int(budget)),
+            )
+    except Exception as exc:  # noqa: BLE001 — 绝不因为痕迹检索失败而吞掉扫描结果
+        logger.warning('公开痕迹检索失败：%s', exc)
+        print()
+        print(f"公开痕迹检索：{username}")
+        print("─" * 40)
+        print(f"  检索未完成：{exc}")
+        return ""
+
+    text = render(summary)
+    if not text:
+        return ""
+    print()
+    print(text)
+    return text
 
 
 def save_db_safely(db: MaigretDatabase, db_file: str, logger) -> bool:
@@ -1221,6 +1356,18 @@ async def main():
         # 与下面的短文本报告保持一致（避免同一份结论出现两次）。
         if args.cn_summary and not args.ai:
             print_cn_summary(username, results, cn_exclusion_table, logger=logger)
+
+        # 公开痕迹检索：默认关闭，`--cn-footprint` 才跑。放在自查结论之后，
+        # 因为它是"结论之外还能看到什么"，而不是结论本身。
+        if args.cn_footprint and not args.ai:
+            await print_cn_footprint(
+                username,
+                results=results,
+                forums=args.cn_forums,
+                threads=args.cn_threads,
+                budget=args.cn_footprint_budget,
+                logger=logger,
+            )
 
         if recursive_search_enabled:
             extracted_ids = extract_ids_from_results(results, db)

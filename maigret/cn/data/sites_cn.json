@@ -21,66 +21,103 @@
   "sites": {
     "Juejin": {
       "urlMain": "https://juejin.cn/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "id_type": "user_id",
       "uri_check": "https://api.juejin.cn/user_api/v1/user/get?user_id={account}",
       "uri_pretty": "https://juejin.cn/user/{account}",
-      "extract": ["nickname", "avatar", "bio", "company"],
+      "extract": [
+        "nickname",
+        "avatar",
+        "bio",
+        "company"
+      ],
       "e_code": 200,
       "e_string": "\"avatar_large\":\"https",
       "m_code": 200,
       "m_string": "\"user_id\":\"0\"",
-      "known": ["1556564194374926"],
-      "known_absent": ["999999999999"],
+      "known": [
+        "1556564194374926"
+      ],
+      "known_absent": [
+        "999999999999"
+      ],
       "verified_at": "2026-11-14",
       "valid": true,
       "_note": "e_string 不能用上游的 \"user_name\":——「不存在」响应里是 \"user_name\":\"\"，照样命中，会与 m_string 双命中（自检实测 rule_ambiguous）。真实用户必有头像 URL，不存在时 avatar_large 为空串。"
     },
     "Weibo": {
       "urlMain": "https://weibo.com",
-      "tags": ["cn", "social"],
+      "tags": [
+        "cn",
+        "social"
+      ],
       "uri_check": "https://weibo.com/ajax/profile/info?screen_name={account}",
       "uri_pretty": "https://weibo.com/n/{account}",
       "e_code": 200,
       "e_string": "{\"ok\":1,\"data\":{\"user\":",
       "m_code": 200,
       "m_string": "该昵称当前没有人使用",
-      "known": ["clairekuo"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "protection": ["custom_bot_protection"],
+      "known": [
+        "clairekuo"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
+      "protection": [
+        "custom_bot_protection"
+      ],
       "alexaRank": 115,
       "verified_at": "",
-      "valid": true,
-      "_note": "上游 headers 里硬编码的微博 Cookie（SUB=...）已由 overrides.json 删除（null 删除键），需要登录态时由使用者自己提供。该站有 custom_bot_protection，未带 Cookie 时可能被判 BLOCKED 而非 AVAILABLE —— 这是预期行为（§5.3 硬规则 1：先判被打断）。"
+      "valid": false,
+      "_note": "2026-11-17 独立评审后改为 valid=false：**该站 robots 对通用 UA 是整站禁止**。按 RFC 9309 逐组核对，`User-agent: *` 组的 `Disallow: /` 最长匹配到我们请求的路径，所以任何自动请求都属越界，不是某一条路径的问题。\n具体：weibo.com/robots.txt 第 40 行 `User-Agent: *`，第 43 行 `Disallow: /`；该组唯一的 `Allow` 是 `Allow: /ads.txt`。\n找过的合规替代（全部不可用）：m.weibo.cn 的 `*` 组同样 `Disallow: /`；weibo.cn 同样；`m.weibo.cn/api/container/getIndex` 实测返回 432（反爬）。\n保留条目而不是删除：信息留着（地址、字段、为什么不行），下一个人不必重走一遍。要查微博只能用你自己导出的登录态（见 docs/cookies.md），但那属于「用本人账号访问」，与自动化抓取是两回事。"
     },
     "Zhihu": {
       "urlMain": "https://www.zhihu.com/",
-      "tags": ["cn", "forum"],
+      "tags": [
+        "cn",
+        "forum"
+      ],
       "uri_check": "https://www.zhihu.com/api/v4/members/{account}",
       "uri_pretty": "https://www.zhihu.com/api/v4/members/{account}",
       "e_code": 200,
       "e_string": "\"url_token\"",
       "m_code": 404,
       "m_string": "用户不存在",
-      "known": ["kaifulee"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "protection": ["tls_fingerprint"],
+      "known": [
+        "kaifulee"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
+      "protection": [
+        "tls_fingerprint"
+      ],
       "alexaRank": 398,
-      "verified_at": "2026-11-14",
-      "valid": true,
-      "_note": "m_code 必须是 404 而非 200：实测不存在时返回 404 + {\"error\":{\"code\":4041,...\"message\":\"用户不存在\"}}。上游 message 型一律按 e=m=200 映射，状态码对不上会判 STRUCTURE_CHANGED。另：uri_pretty 仍指向 API，报告里显示不友好。"
+      "verified_at": "",
+      "valid": false,
+      "_note": "2026-11-17 独立评审后改为 valid=false：**该站 robots 对通用 UA 是整站禁止**。按 RFC 9309 逐组核对，`User-agent: *` 组的 `Disallow: /` 最长匹配到我们请求的路径，所以任何自动请求都属越界，不是某一条路径的问题。\n具体：www.zhihu.com/robots.txt 第 113 行 `User-Agent: *`，第 115 行 `Disallow: /`；该组只有一个 `Allow: /tardis/jm`。\n实测 `/tardis/jm` 返回的是空壳 SPA（title 为空，1235 字节），没有用户信息，不能当判据。api.zhihu.com 同样整站禁。"
     },
     "Douban": {
       "urlMain": "https://www.douban.com",
-      "tags": ["cn", "books"],
+      "tags": [
+        "cn",
+        "books"
+      ],
       "uri_check": "https://www.douban.com/people/{account}/",
       "uri_pretty": "https://www.douban.com/people/{account}/",
       "e_code": 200,
       "e_string": "db-usr-profile",
       "m_code": 404,
       "m_string": "页面不存在",
-      "known": ["darkmage"],
-      "known_absent": ["noonewouldeverusethis7"],
+      "known": [
+        "darkmage"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
       "alexaRank": 908,
       "verified_at": "2026-11-14",
       "valid": true,
@@ -88,40 +125,65 @@
     },
     "Bilibili": {
       "urlMain": "https://www.bilibili.com/",
-      "tags": ["cn", "video"],
+      "tags": [
+        "cn",
+        "video"
+      ],
       "id_type": "bilibili_id",
       "uri_check": "https://api.bilibili.com/x/web-interface/card?mid={account}",
       "uri_pretty": "https://space.bilibili.com/{account}",
-      "extract": ["nickname", "avatar", "bio"],
+      "extract": [
+        "nickname",
+        "avatar",
+        "bio"
+      ],
       "e_code": 200,
       "e_string": "\"card\":{",
       "m_code": 200,
       "m_string": "啥都木有",
-      "known": ["2"],
-      "known_absent": ["999999999999"],
-      "verified_at": "2026-11-14",
-      "valid": true,
-      "_note": "上游没有 alexaRank，这正是它进不了默认 Top 500 的原因（文档 §2.1）；本文件 force_include 后不再依赖该字段。"
+      "known": [
+        "2"
+      ],
+      "known_absent": [
+        "999999999999"
+      ],
+      "verified_at": "",
+      "valid": false,
+      "_note": "2026-11-17 独立评审后改为 valid=false：**该站 robots 对通用 UA 是整站禁止**。按 RFC 9309 逐组核对，`User-agent: *` 组的 `Disallow: /` 最长匹配到我们请求的路径，所以任何自动请求都属越界，不是某一条路径的问题。\n具体：api.bilibili.com/robots.txt 只有两行 `User-agent: *` 与 `Disallow: /`。\n找过的合规替代（全部不可用）：space.bilibili.com 的 `*` 组也是 `Disallow: /`；www.bilibili.com 的 `*` 组**没有**整站禁止，但 `/space/{mid}` 返回 404（无用户页）；m.bilibili.com 的 robots.txt 是 404（未设限），但 `/space/{mid}` 会 **302 跳到 space.bilibili.com**——实际访问的仍是被禁路径，所以不是合规替代。"
     },
     "NetEase Music": {
       "urlMain": "https://music.163.com/",
-      "tags": ["cn", "music"],
+      "tags": [
+        "cn",
+        "music"
+      ],
       "id_type": "user_id",
       "uri_check": "https://music.163.com/api/v1/user/detail/{account}",
       "uri_pretty": "https://music.163.com/user/home?id={account}",
-      "extract": ["nickname", "avatar", "bio"],
+      "extract": [
+        "nickname",
+        "avatar",
+        "bio"
+      ],
       "e_code": 200,
       "e_string": "\"nickname\":",
       "m_code": 200,
       "m_string": "{\"code\":404}",
-      "known": ["1"],
-      "known_absent": ["999999999999"],
+      "known": [
+        "1"
+      ],
+      "known_absent": [
+        "999999999999"
+      ],
       "verified_at": "2026-11-14",
       "valid": true
     },
     "QQ": {
       "urlMain": "https://qq.com",
-      "tags": ["cn", "social"],
+      "tags": [
+        "cn",
+        "social"
+      ],
       "id_type": "qq_id",
       "uri_check": "https://users.qzone.qq.com/fcg-bin/cgi_get_portrait.fcg?uins={account}",
       "uri_pretty": "https://user.qzone.qq.com/{account}",
@@ -129,23 +191,34 @@
       "e_string": "portraitCallBack(",
       "m_code": 200,
       "m_string": "\"\",0]",
-      "known": ["10001"],
-      "known_absent": ["3999999999"],
+      "known": [
+        "10001"
+      ],
+      "known_absent": [
+        "3999999999"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "e_string 是 JSONP 包装函数名 portraitCallBack(，存在与不存在的响应都包含它（m_string '\"\",0]' 只在不存在响应里），必然双命中 → RULE_AMBIGUOUS，永远给不出「不存在」。需换可区分字段（如响应里出现的昵称键）后再启用。另：响应是 GBK 编码（上游 encoding=gbk），解码不对会导致 m_string 永远匹配不上；四字段协议本身不表达编码，由执行器负责。"
     },
     "SegmentFault": {
       "urlMain": "https://segmentfault.com/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "uri_check": "https://segmentfault.com/u/{account}",
       "uri_pretty": "https://segmentfault.com/u/{account}",
       "e_code": 200,
       "e_string": "- SegmentFault 思否</title>",
       "m_code": 200,
       "m_string": "message\":\"Not Found\"",
-      "known": ["john"],
-      "known_absent": ["noonewouldeverusethis7"],
+      "known": [
+        "john"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
       "alexaRank": 5887,
       "disabled": true,
       "verified_at": "",
@@ -154,147 +227,231 @@
     },
     "Gitee": {
       "urlMain": "https://gitee.com/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "uri_check": "https://gitee.com/{account}",
       "uri_pretty": "https://gitee.com/{account}",
       "e_code": 200,
-      "e_string": "",
+      "e_string": "git-nav-user-bar",
       "m_code": 404,
       "m_string": "",
-      "known": ["wizzer"],
-      "known_absent": ["noonewouldeverusethis7"],
+      "known": [
+        "wizzer"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
       "alexaRank": 1236,
-      "extract": ["nickname", "avatar"],
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
       "verified_at": "2026-11-14",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，按 §5.4 status_only 置信度固定 0.5（中档下沿，进不了高置信档）。extract 只声明 nickname：2026-11-14 实测 og:title 可抽出「Wizzer (wizzer)」（站点后缀已剥离）。email 特意不声明——该页全文唯一的邮箱是站点客服 client@oschina.cn，抽出来会把客服邮箱写进用户报告。"
+      "_note": "2026-11-16 实测；2026-11-17 独立评审后修正判据。原 `e_string` 为空（纯状态码判），保留路径会被判成已注册账号：`/login`→200「登录 - Gitee.com」、`/help`→200「Gitee 帮助中心」，都判 Claimed。改用 `git-nav-user-bar` 作存在侧判据——实测 3 个真实用户（wizzer/about/osc）全部命中，`/login`、`/help` 均不命中；`/mvnclub`(404)、`/gitee`(403) 亦不命中。反例仍是状态码 404。副作用：`/login` 这类保留页现在判 UNKNOWN 而非 Claimed。"
     },
     "Yuque": {
       "urlMain": "https://www.yuque.com/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "uri_check": "https://www.yuque.com/{account}",
       "uri_pretty": "https://www.yuque.com/{account}",
       "e_code": 200,
-      "e_string": "",
+      "e_string": "member_level",
       "m_code": 404,
-      "m_string": "",
-      "known": ["yuque"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-14",
+      "m_string": "404 - Not Found",
+      "known": [
+        "ant-design",
+        "admin"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-17",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-17 实测修正。原 `e_string` 为空（纯状态码判），语雀的**保留路径**全部返回 200 → 判成已注册：`/login`、`/explore`、`/search`、`/new`、`/settings`、`/dashboard`、`/about`、`/help`、`/download` 都中招（`/admin` 例外——语雀真有名为 Admin 的命名空间，判存在是对的）。改用 `member_level` 作存在侧判据：实测 6 个真实命名空间（ant-design/admin/antv/yuque/fe）全部命中，10 个保留路径全部不命中。反例仍是 404（`404 - Not Found · 语雀`）。修正后保留路径落到 UNKNOWN（不是 Claimed）——宁可说『判不了』也不说『有』。注意：正反样本是**命名空间**（个人/团队），不是严格意义的用户名。"
     },
     "cnblogs.com": {
       "urlMain": "https://www.cnblogs.com/",
-      "tags": ["cn", "blog"],
-      "uri_check": "https://cnblogs.com/{account}",
-      "uri_pretty": "https://cnblogs.com/{account}",
+      "tags": [
+        "cn",
+        "blog"
+      ],
+      "uri_check": "https://www.cnblogs.com/{account}",
+      "uri_pretty": "https://www.cnblogs.com/{account}",
       "e_code": 200,
-      "e_string": "",
+      "e_string": "blog-sidecolumn",
       "m_code": 404,
-      "m_string": "",
-      "known": ["adam"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-14",
+      "m_string": "404 页面不存在",
+      "known": [
+        "dudu"
+      ],
+      "verified_at": "2026-11-16",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-16 实测；2026-11-17 独立评审后修正判据。原 `e_string` 为空（纯状态码判），会把**保留路径判成已注册账号**：`/admin`→200「用户中心 - 博客园」、`/about`→200「关于博客园」，都不含 404 文案 → 判 Claimed。改用 `blog-sidecolumn` 作存在侧判据：真实博客页独有的区块 id，实测 4 个真实博客（dudu/adam/esofar/login）全命中，`/admin`、`/about`、`/signin` 全不命中。修正后保留路径落到 UNKNOWN（不是 Claimed），正常用户仍 Claimed。刻意**不用** m_strings 排除保留页文案：m_code=404 而保留页返回 200，反例串在状态码不匹配时根本不会被评估，加上去是无效配置。注意 `/login`、`/register`、`/contact` 返回的是**真实用户博客**（Manho/jhb/weiwuwen），判存在是对的，不要当保留路径屏蔽。正样本 dudu 200/39653，反例 404/1074。",
+      "known_absent": [
+        "zzqqxx998877zz"
+      ]
     },
     "v2ex.com": {
       "urlMain": "https://v2ex.com/",
-      "tags": ["cn", "forum"],
+      "tags": [
+        "cn",
+        "forum"
+      ],
       "uri_check": "https://v2ex.com/member/{account}",
       "uri_pretty": "https://v2ex.com/member/{account}",
       "e_code": 200,
       "e_string": "",
       "m_code": 404,
       "m_string": "",
-      "known": ["adam"],
-      "known_absent": ["noonewouldeverusethis7"],
+      "known": [
+        "adam"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
       "verified_at": "2026-11-14",
       "valid": true,
       "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
     },
     "Sina Blog": {
       "urlMain": "https://blog.sina.com.cn/",
-      "tags": ["cn", "blog"],
+      "tags": [
+        "cn",
+        "blog"
+      ],
       "uri_check": "https://blog.sina.com.cn/{account}",
       "uri_pretty": "https://blog.sina.com.cn/{account}",
       "e_code": 200,
-      "e_string": "",
+      "e_string": "ArtList.php",
       "m_code": 404,
       "m_string": "",
-      "known": ["laoxu"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-14",
+      "known": [
+        "laoxu",
+        "kaifulee"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-17",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-17 实测修正。原 `e_string` 为空（纯状态码判），`/login`(646B)、`/help`(409B) 返回 200 空壳 → 判成账号存在。改用 `ArtList.php` 作存在侧判据（新浪博客文章列表模板）：实测真实博客 laoxu/kaifulee 命中，`/login`、`/admin` 不命中。反例 404（4847B 的错误页）。"
     },
     "Moegirl": {
       "urlMain": "https://zh.moegirl.org.cn/",
-      "tags": ["cn", "anime"],
-      "uri_check": "https://zh.moegirl.org.cn/User:{account}",
+      "tags": [
+        "cn",
+        "anime"
+      ],
+      "uri_check": "https://zh.moegirl.org.cn/api.php?action=query&list=users&ususers={account}&format=json",
       "uri_pretty": "https://zh.moegirl.org.cn/User:{account}",
       "e_code": 200,
-      "e_string": "",
-      "m_code": 404,
-      "m_string": "",
-      "known": ["零"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "protection": ["tls_fingerprint"],
-      "verified_at": "2026-11-14",
+      "e_string": "\"userid\":",
+      "m_code": 200,
+      "m_string": "\"missing\"",
+      "known": [
+        "Baskice"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "protection": [
+        "tls_fingerprint"
+      ],
+      "verified_at": "2026-11-17",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-17 实测。改用 **MediaWiki 标准 API** 而不是解析用户页 HTML／只看状态码：`/api.php?action=query&list=users&ususers=<用户名>&format=json`。响应里 `\"userid\":N` 表示账号存在，`\"missing\":\"\"` 表示不存在——两者是 JSON 字段名，不会像网页文案那样随皮肤改版。robots 的 `*` 段允许 `/api.php`。原规则是 `User:{account}` 纯状态码判，保留路径（如 `/wiki/`、`/login`）会误报成存在。注意用户名要 URL 编码（中文名、含空格的名字都要）。",
+      "extract": [
+        "nickname"
+      ]
     },
     "Ruby China": {
       "urlMain": "https://ruby-china.org/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "uri_check": "https://ruby-china.org/{account}",
       "uri_pretty": "https://ruby-china.org/{account}",
       "e_code": 200,
-      "e_string": "",
+      "e_string": "data-login",
       "m_code": 404,
       "m_string": "",
-      "known": ["huacnlee"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-14",
+      "known": [
+        "huacnlee",
+        "likai"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-17",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-17 实测修正。原 `e_string` 为空（纯状态码判），`/admin` 返回 200「登录 · Ruby China」→ 判成账号存在。改用 `data-login` 作存在侧判据：实测 2 个真实用户（huacnlee/likai）都命中，`/admin` 与幽灵名都不命中。注意 `/login` 是**真实用户**（title「login (qqslot228) · Ruby China」），判存在是对的，不要当保留路径屏蔽。反例 404（0 字节）。"
     },
     "OpenI": {
       "urlMain": "https://openi.pcl.ac.cn/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "uri_check": "https://openi.pcl.ac.cn/{account}",
       "uri_pretty": "https://openi.pcl.ac.cn/{account}",
       "default_include": false,
       "e_code": 200,
-      "e_string": "",
+      "e_string": "IsOrganizationMember",
       "m_code": 404,
       "m_string": "",
-      "known": ["OpenI"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-14",
+      "known": [
+        "OpenI",
+        "mindspore",
+        "buaa",
+        "pcl"
+      ],
+      "known_absent": [
+        "tsinghua",
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-17",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-17 实测修正。原 `e_string` 为空（纯状态码判）：`/admin`→200「Sign In」、`/about`→200「About」都会被判成账号存在。该站的 `/{名字}` 有两类页面（**组织页**与**用户页**），结构不同，所以要两个判据任一命中：组织页含 `IsOrganizationMember`，用户页含 `member.svg`。实测：组织页 OpenI/mindspore/buaa 命中前者，用户页 pcl 命中后者；保留页 about/admin/login/help 与幽灵名两者都不命中。已知代价：`ascend` 这类页面两个标记都没有 → 落到 UNKNOWN。宁可少给，不要错给。",
+      "e_strings": [
+        "member.svg"
+      ]
     },
     "openKylin": {
       "urlMain": "https://bbs.openkylin.top/",
-      "tags": ["cn", "forum"],
-      "uri_check": "https://bbs.openkylin.top/u/{account}",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://bbs.openkylin.top/topics/created-by/{account}.json",
       "uri_pretty": "https://bbs.openkylin.top/u/{account}",
       "default_include": false,
       "e_code": 200,
-      "e_string": "",
+      "e_string": "\"username\"",
       "m_code": 404,
       "m_string": "",
-      "known": ["openkylin"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-14",
+      "known": [
+        "openkylin"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
+      "verified_at": "2026-11-17",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-16 实测；2026-11-17 独立评审后修正路径。原 `uri_check` 用 `/u/{account}.json`，但该站 robots 的 `*` 段含 `Disallow: /u/`（Discourse 默认模板），属越界。改用 `/topics/created-by/{account}.json`——该路径在同站 robots 下**允许**，响应里带 `users[].username`，同样能判存在性：存在 200 + `\"username\"`，不存在 404。"
     },
     "KubeSphere Community": {
       "urlMain": "https://ask.kubesphere.com.cn/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "uri_check": "https://ask.kubesphere.com.cn/forum/u/{account}",
       "uri_pretty": "https://ask.kubesphere.com.cn/forum/u/{account}",
       "default_include": false,
@@ -302,15 +459,27 @@
       "e_string": "",
       "m_code": 404,
       "m_string": "",
-      "known": ["kubesphere"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-14",
+      "known": [
+        "kubesphere",
+        "admin"
+      ],
+      "known_absent": [
+        "login",
+        "about",
+        "help",
+        "register",
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-17",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-17 复核。这条**保持纯状态码判是安全的**，已逐个验证：该站是 Flarum，`/forum/u/{account}` 对不存在的名字返回 **404**（2394B 错误页），包括看起来像保留路径的 `login`、`about`、`help`、`register`、`settings` 全部 404。`/forum/u/admin` 返回 200 是因为**站内真有名为 admin 的用户**（用 Flarum API `/forum/api/users?filter[q]=admin` 交叉验证，精确匹配到 username=admin）。注意：那个 API 是**模糊匹配**（查 `a` 返回 20 个用户），不能用作判据，所以这里仍走 HTML 路径。不补存在侧标记的原因：能区分的标记（Flarum 的 App-* 外壳元素）与状态码基本等价，都只是「渲染了页面」vs「错误页」，加了不增加信息量。"
     },
     "AskTUG": {
       "urlMain": "https://asktug.com/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "uri_check": "https://asktug.com/u/{account}",
       "uri_pretty": "https://asktug.com/u/{account}",
       "default_include": false,
@@ -318,40 +487,66 @@
       "e_string": "",
       "m_code": 404,
       "m_string": "",
-      "known": ["tidb"],
-      "known_absent": ["noonewouldeverusethis7"],
+      "known": [
+        "tidb"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
       "verified_at": "2026-11-14",
       "valid": true,
       "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
     },
     "Appinn": {
       "urlMain": "https://meta.appinn.net/",
-      "tags": ["cn", "forum"],
-      "uri_check": "https://meta.appinn.net/u/{account}",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://meta.appinn.net/u/{account}.json",
       "uri_pretty": "https://meta.appinn.net/u/{account}",
       "default_include": false,
       "e_code": 200,
-      "e_string": "",
+      "e_string": "\"username\"",
       "m_code": 404,
       "m_string": "",
-      "known": ["appinn"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-14",
+      "known": [
+        "appinn"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-17",
       "valid": true,
-      "_note": "上游 status_code 型：仅状态码判据，置信度固定 0.5（中档下沿）。"
+      "_note": "2026-11-17 实测改为 Discourse `.json` 判据（原为 HTML `/u/{account}` 纯状态码判）。存在 200 含 `\"username\"`，不存在 404。原写法会把保留路径判成存在；`.json` 是服务端接口，没有这个歧义。robots 的 `*` 段允许 `/u/`（已核）。",
+      "extract": [
+        "nickname",
+        "avatar"
+      ]
     },
     "CSDN": {
       "urlMain": "https://blog.csdn.net/",
-      "tags": ["cn", "blog", "coding"],
+      "tags": [
+        "cn",
+        "blog",
+        "coding"
+      ],
       "uri_check": "https://blog.csdn.net/{account}",
       "uri_pretty": "https://blog.csdn.net/{account}",
       "e_code": 200,
       "e_string": "data-username=\"",
       "m_code": 200,
       "m_string": "",
-      "known": ["csdnnews"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "protection": ["tls_fingerprint", "custom_bot_protection"],
+      "known": [
+        "csdnnews"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
+      "protection": [
+        "tls_fingerprint",
+        "custom_bot_protection"
+      ],
       "alexaRank": 45,
       "verified_at": "",
       "valid": false,
@@ -359,141 +554,236 @@
     },
     "Baidu": {
       "urlMain": "https://tieba.baidu.com",
-      "tags": ["cn", "forum"],
+      "tags": [
+        "cn",
+        "forum"
+      ],
       "uri_check": "https://tieba.baidu.com/home/get/panel?ie=utf-8&un={account}",
       "uri_pretty": "https://tieba.baidu.com/home/main?un={account}",
       "e_code": 200,
-      "e_string": "\"no\":0",
+      "e_string": "\"name_show\":",
       "m_code": 200,
       "m_string": "\"data\":[]",
-      "extract": ["nickname", "gender", "followers", "account_age"],
-      "known": ["maigret"],
-      "known_absent": ["noonewouldeverusethis7"],
-      "verified_at": "2026-11-15",
+      "extract": [
+        "nickname",
+        "gender",
+        "followers",
+        "account_age"
+      ],
+      "known": [
+        "maigret"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
+      "verified_at": "2026-11-16",
       "verified_source": "manual",
       "valid": true,
-      "_note": "即百度贴吧，账号体系就是百度通行证。2026-11-15 实测：`home/get/panel?un=` 存在 → 200 + {\"no\":0,...,\"data\":{name_show,sex,tb_age,post_num,followed_count,portrait}}；不存在 → 200 + {\"no\":1130029,\"error\":\"参数错误\",\"data\":[]}（另一种错误码 1130025 同样带 data:[]），故用 e_string=\"no\":0 / m_string=\"data\":[] 做四字段判定，两侧都实测过 5 个样本。5 个存在样本：maigret/baidu/admin/testuser/tieba；5 个不存在样本：noonewouldeverusethis7/zzqqxx998877zz/q1w2e3r4t5y6u7i8o9p0/a1b2c3d4e5f6g7h8i9j0k1l2/thisaccountdoesnotexist99。资料抽取见 platforms/tieba.py。注意两点：① 这是贴吧用户名，不是 baidu.com 个人主页 —— 后者匿名访问被 302 到 passport 登录墙；② 带「性别/地点」的 /home/main 页面对非浏览器流量一律 403「百度安全验证」（12 种 URL/头/Cookie 组合实测全挂），所以地点拿不到，只能拿到性别、吧龄、粉丝数、昵称、头像。"
+      "_note": "2026-11-16 实测修正：原 e_string 是 `\"no\":0`。docs/retrieval-analysis.md §3 记录过一种 74 字节降级响应 `{\"no\":0,\"error\":\"成功\",\"data\":{\"tb_vip\":false,...}}`，含 `\"no\":0` 但不含 `\"data\":[]`，会让**任何用户名**都判 Claimed。改用 `\"name_show\":`：它只在真实用户响应里出现（5 正 5 负实测 100% 分离）。"
     },
     "NGA": {
       "urlMain": "https://bbs.nga.cn/",
-      "tags": ["cn", "forum"],
+      "tags": [
+        "cn",
+        "forum"
+      ],
       "uri_check": "https://bbs.nga.cn/nuke.php?func=ucp&username={account}",
       "uri_pretty": "https://bbs.nga.cn/nuke.php?func=ucp&username={account}",
       "e_code": 200,
       "e_string": "__UCPUSER",
       "m_code": 200,
       "m_string": "",
-      "known": ["admin"],
-      "known_absent": ["noonewouldeverusethis7"],
+      "known": [
+        "admin"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "上游只有 presenseStrs、没有 absenceStrs：缺 m_string。NGA 有反爬，未登录访问可能直接返回风控页，需配合 blocked 页识别（§5.3 硬规则 1）。"
     },
     "LeetCode CN": {
       "urlMain": "https://leetcode.cn/",
-      "tags": ["cn", "coding"],
+      "tags": [
+        "cn",
+        "coding"
+      ],
       "uri_check": "https://leetcode.cn/u/{account}/",
       "uri_pretty": "https://leetcode.cn/u/{account}/",
       "e_code": 200,
       "e_string": "\"userAvatar\"",
       "m_code": 200,
       "m_string": "",
-      "known": ["leetcode"],
-      "known_absent": ["noonewouldeverusethis7"],
+      "known": [
+        "leetcode"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "上游只有 presenseStrs、没有 absenceStrs：缺 m_string，页面是 SPA 空壳，状态码恒为 200。"
     },
     "Chiphell": {
       "urlMain": "https://www.chiphell.com/",
-      "tags": ["cn", "forum"],
+      "tags": [
+        "cn",
+        "forum"
+      ],
       "uri_check": "https://www.chiphell.com/home.php?mod=space&username={account}",
       "uri_pretty": "https://www.chiphell.com/home.php?mod=space&username={account}",
       "e_code": 200,
       "e_string": "的个人资料",
       "m_code": 200,
       "m_string": "",
-      "known": ["admin"],
-      "known_absent": ["noonewouldeverusethis7"],
+      "known": [
+        "admin"
+      ],
+      "known_absent": [
+        "noonewouldeverusethis7"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "上游只有 presenseStrs、没有 absenceStrs：缺 m_string，Discuz 对不存在用户同样返回 200。"
     },
     "小红书": {
       "urlMain": "https://www.xiaohongshu.com",
-      "tags": ["cn", "social", "photo"],
+      "tags": [
+        "cn",
+        "social",
+        "photo"
+      ],
       "id_type": "user_id",
       "uri_check": "https://www.xiaohongshu.com/user/profile/{account}",
       "uri_pretty": "https://www.xiaohongshu.com/user/profile/{account}",
       "executor": "browser",
       "signature": "xhs_xs",
-      "requires": ["login"],
-      "protection": ["captcha", "signature"],
-      "extract": ["nickname", "avatar", "desc", "ip_location", "fans"],
+      "requires": [
+        "login"
+      ],
+      "protection": [
+        "captcha",
+        "signature"
+      ],
+      "extract": [
+        "nickname",
+        "avatar",
+        "desc",
+        "ip_location",
+        "fans"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "实测 2026-11-14（浏览器执行器，未登录）：status=200、HTML 92KB，但可见正文只有「安全限制 当前网络存在风险，请切换可靠网络后重试 300012」。这是**网络层**风控，与账号是否存在无关，而 200 状态码会让 status_only 规则直接判成「存在」——最坏的一类误报。已把「当前网络存在风险」加入 verdict 强特征，此页现在判 UNKNOWN/BLOCKED。规则仍未采集：需要在未被风控的出口 IP 上，用 known/known_absent 成对采样才能写 e/m。"
     },
     "抖音": {
       "urlMain": "https://www.douyin.com",
-      "tags": ["cn", "social", "video"],
+      "tags": [
+        "cn",
+        "social",
+        "video"
+      ],
       "id_type": "sec_uid",
       "uri_check": "https://www.douyin.com/user/{account}",
       "uri_pretty": "https://www.douyin.com/user/{account}",
       "executor": "browser",
       "signature": "a_bogus",
-      "requires": ["login"],
-      "protection": ["captcha", "signature"],
-      "extract": ["nickname", "avatar", "desc", "ip_location", "fans"],
+      "requires": [
+        "login"
+      ],
+      "protection": [
+        "captcha",
+        "signature"
+      ],
+      "extract": [
+        "nickname",
+        "avatar",
+        "desc",
+        "ip_location",
+        "fans"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "实测 2026-11-14（浏览器执行器，未登录）：status=200、HTML 1.2MB，不存在的 sec_uid 页面标题为「的抖音 - 抖音」，可见文本含「用户不存在」。**这是唯一有判定迹象的一个站**，但只采到了反例：缺一个真实存在的 sec_uid 作正例，而只有 m_string 没有 e_string 的规则会把任何非「不存在」的页面（含登录墙、空壳）判成 CLAIMED。按「宁可 UNKNOWN 不猜 CLAIMED」，规则暂不落盘，等成对采样。"
     },
     "快手": {
       "urlMain": "https://www.kuaishou.com",
-      "tags": ["cn", "social", "video"],
+      "tags": [
+        "cn",
+        "social",
+        "video"
+      ],
       "id_type": "user_id",
       "uri_check": "https://www.kuaishou.com/profile/{account}",
       "uri_pretty": "https://www.kuaishou.com/profile/{account}",
       "executor": "browser",
       "signature": "sig3",
-      "requires": ["login"],
-      "protection": ["captcha", "signature"],
+      "requires": [
+        "login"
+      ],
+      "protection": [
+        "captcha",
+        "signature"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "实测 2026-11-14（浏览器执行器，未登录）：status=200，但正文只有 226 字节的 JSON `{\"result\":2,\"error_msg\":null}`——SPA 首屏就把接口拒绝结果直接吐出来了，未登录拿不到任何页面结构。无登录态不可判，规则未采集。"
     },
     "脉脉": {
       "urlMain": "https://maimai.cn",
-      "tags": ["cn", "social", "business"],
+      "tags": [
+        "cn",
+        "social",
+        "business"
+      ],
       "id_type": "user_id",
       "uri_check": "https://maimai.cn/contact/detail/{account}",
       "uri_pretty": "https://maimai.cn/contact/detail/{account}",
       "executor": "browser",
-      "requires": ["login"],
-      "protection": ["login_wall"],
-      "extract": ["nickname", "avatar", "company", "school", "position"],
+      "requires": [
+        "login"
+      ],
+      "protection": [
+        "login_wall"
+      ],
+      "extract": [
+        "nickname",
+        "avatar",
+        "company",
+        "school",
+        "position"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "实测 2026-11-14（浏览器执行器，未登录）：status=200，正文仅 39 字节、可见文本为空——页面由 JS 在登录态下才渲染，未登录拿不到任何内容。登录墙，规则未采集。"
     },
     "即刻": {
       "urlMain": "https://web.okjike.com",
-      "tags": ["cn", "social"],
+      "tags": [
+        "cn",
+        "social"
+      ],
       "id_type": "user_id",
       "uri_check": "https://web.okjike.com/u/{account}",
       "uri_pretty": "https://web.okjike.com/u/{account}",
       "executor": "browser",
-      "requires": ["login"],
-      "protection": ["login_wall"],
+      "requires": [
+        "login"
+      ],
+      "protection": [
+        "login_wall"
+      ],
       "verified_at": "",
       "valid": false,
       "_note": "实测 2026-11-14（浏览器执行器，未登录）：status=200，页面直接渲染成「登录 - 即刻」扫码页——未登录必然落到登录墙，判定层会给出 LOGIN_REQUIRED（不是「不存在」）。规则未采集。"
     },
-
     "Bilibili (搜索)": {
       "urlMain": "https://www.bilibili.com/",
-      "tags": ["cn", "video"],
+      "tags": [
+        "cn",
+        "video"
+      ],
       "id_type": "username",
       "uri_check": "https://api.bilibili.com/x/web-interface/search/type?search_type=bili_user&keyword={account}",
       "uri_pretty": "https://search.bilibili.com/upuser?keyword={account}",
@@ -502,16 +792,23 @@
       "search_handle_pattern": "\"mid\":(?P<id>\\d+),\"uname\":\"(?P<handle>[^\"]+)\"",
       "search_empty_marker": "\"numResults\":0",
       "search_profile_url": "https://space.bilibili.com/{id}",
-      "known": ["wizzer"],
-      "known_absent": ["zzqqxx998877zz"],
+      "known": [
+        "wizzer"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
       "verified_source": "manual",
-      "verified_at": "2026-11-15",
-      "valid": true,
-      "_note": "实测 2026-11-15：`Bilibili` 那条走 card 接口，只能按数字 mid 查（id_type=bilibili_id）；普通用户只知道自己的昵称，所以在默认用户名扫描里 B 站等于查不到。这条用公开的 bili_user 搜索接口按昵称查：keyword=wizzer 返回 4 条、其中一条 uname 逐字等于 wizzer；keyword=zzqqxx998877zz 返回 numResults=0。不加 bootstrap_url 时第一次能过、之后一律 412 风控（实测连续 3 次），所以先访问一次首页拿 buvid3。搜索结果里 `uname` 不带 <em> 高亮标签，可直接逐字比对。"
+      "verified_at": "",
+      "valid": false,
+      "_note": "2026-11-17 独立评审后改为 valid=false：**该站 robots 对通用 UA 是整站禁止**。按 RFC 9309 逐组核对，`User-agent: *` 组的 `Disallow: /` 最长匹配到我们请求的路径，所以任何自动请求都属越界，不是某一条路径的问题。\n具体：api.bilibili.com/robots.txt 只有两行 `User-agent: *` 与 `Disallow: /`。\n找过的合规替代（全部不可用）：space.bilibili.com 的 `*` 组也是 `Disallow: /`；www.bilibili.com 的 `*` 组**没有**整站禁止，但 `/space/{mid}` 返回 404（无用户页）；m.bilibili.com 的 robots.txt 是 404（未设限），但 `/space/{mid}` 会 **302 跳到 space.bilibili.com**——实际访问的仍是被禁路径，所以不是合规替代。\n（这是 B 站的站内搜索执行器配置，同样受 api.bilibili.com 整站禁止约束。）"
     },
     "NetEase Music (搜索)": {
       "urlMain": "https://music.163.com/",
-      "tags": ["cn", "music"],
+      "tags": [
+        "cn",
+        "music"
+      ],
       "id_type": "username",
       "uri_check": "https://music.163.com/api/search/get/web?s={account}&type=1002&limit=10",
       "uri_pretty": "https://music.163.com/#/search/m/?s={account}&type=1002",
@@ -520,12 +817,401 @@
       "search_handle_pattern": "\"userId\":(?P<id>\\d+)[^{}]*?\"nickname\":\"(?P<handle>[^\"]+)\"",
       "search_empty_marker": "\"userprofileCount\":0",
       "search_profile_url": "https://music.163.com/#/user/home?id={id}",
-      "known": ["wizzer"],
-      "known_absent": ["zzqqxx998877zz"],
+      "known": [
+        "wizzer"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
       "verified_source": "manual",
       "verified_at": "2026-11-15",
       "valid": true,
       "_note": "实测 2026-11-15：`NetEase Music` 那条是 api/v1/user/detail/{account}，要数字 uid；普通用户只有昵称，所以补这条按昵称搜。type=1002 是「用户」类目（1006 是歌曲，会搜出一堆歌）。s=wizzer 命中 nickname=WizZer；s=zzqqxx998877zz 返回 {\"userprofiles\":[],\"userprofileCount\":0}。"
+    },
+    "InfoQ 中文": {
+      "urlMain": "https://www.infoq.cn/",
+      "tags": [
+        "cn",
+        "news"
+      ],
+      "uri_check": "https://www.infoq.cn/profile/{account}",
+      "uri_pretty": "https://www.infoq.cn/profile/{account}",
+      "e_code": 200,
+      "e_string": "og:title",
+      "m_code": 404,
+      "m_string": "",
+      "known": [
+        "1234567",
+        "2222222"
+      ],
+      "known_absent": [
+        "100000",
+        "888888",
+        "9999999999"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。`{account}` 是 InfoQ 的数字 profile id，不是用户名——所以按用户名查永远查不到，只能当\"已知 id 时确认存在性\"用。正样本 200/7515 带 `og:title`（值是用户昵称），不存在 404/5266 且**没有** `og:title`（title 是站点标语）。5 个样本（3 正 2 负）100% 分离。robots 的 `*` 段允许 `/profile/`。",
+      "verified_source": "manual"
+    },
+    "NebulaGraph 论坛": {
+      "urlMain": "https://discuss.nebula-graph.com.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://discuss.nebula-graph.com.cn/topics/created-by/{account}.json",
+      "uri_pretty": "https://discuss.nebula-graph.com.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "known": [
+        "system",
+        "admin"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测；2026-11-17 独立评审后修正路径。原 `uri_check` 用 `/u/{account}.json`，但该站 robots 的 `*` 段含 `Disallow: /u/`（Discourse 默认模板），属越界。改用 `/topics/created-by/{account}.json`——该路径在同站 robots 下**允许**，响应里带 `users[].username`，同样能判存在性：存在 200 + `\"username\"`，不存在 404。",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "verified_source": "manual"
+    },
+    "Gurobot GitLab": {
+      "urlMain": "https://gitlab.gurobot.cn/",
+      "tags": [
+        "cn",
+        "coding"
+      ],
+      "uri_check": "https://gitlab.gurobot.cn/api/v4/users?username={account}",
+      "uri_pretty": "https://gitlab.gurobot.cn/{account}",
+      "e_code": 200,
+      "e_string": "\"username\":",
+      "m_code": 200,
+      "m_string": "",
+      "known": [
+        "root"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "valid": false,
+      "_note": "2026-11-16 实测：**写不出可靠规则**，保留 valid=false 只是留记录。GitLab 标准接口 `/api/v4/users?username=` 存在返回 `[{\"id\":1,\"username\":\"root\",...}]`，不存在返回 `[]` —— 只有 2 字节。而 schema 要求判据串 ≥3 字符（2 字符在 HTML 里必然误命中），`m_empty` 又只认\"0 字节/纯空白\"，`[]` 两者都不满足。响应头（Content-Type/Content-Length/Link）正反完全一致，也提供不了判据。另外 GitLab **默认** robots 是 `Disallow: /api/v*`：实测 6 个中文实例里 4 个开着这条，只有 gurobot / miaoyun 没开。所以即使判据能写，也不能批量套。",
+      "verified_at": ""
+    },
+    "Miaoyun GitLab": {
+      "urlMain": "https://gitlab.miaoyun.net.cn/",
+      "tags": [
+        "cn",
+        "coding"
+      ],
+      "uri_check": "https://gitlab.miaoyun.net.cn/api/v4/users?username={account}",
+      "uri_pretty": "https://gitlab.miaoyun.net.cn/{account}",
+      "e_code": 200,
+      "e_string": "\"username\":",
+      "m_code": 200,
+      "m_string": "",
+      "known": [
+        "root"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "valid": false,
+      "_note": "2026-11-16 实测：**写不出可靠规则**，保留 valid=false 只是留记录。GitLab 标准接口 `/api/v4/users?username=` 存在返回 `[{\"id\":1,\"username\":\"root\",...}]`，不存在返回 `[]` —— 只有 2 字节。而 schema 要求判据串 ≥3 字符（2 字符在 HTML 里必然误命中），`m_empty` 又只认\"0 字节/纯空白\"，`[]` 两者都不满足。响应头（Content-Type/Content-Length/Link）正反完全一致，也提供不了判据。另外 GitLab **默认** robots 是 `Disallow: /api/v*`：实测 6 个中文实例里 4 个开着这条，只有 gurobot / miaoyun 没开。所以即使判据能写，也不能批量套。",
+      "verified_at": ""
+    },
+    "openUBMC 论坛": {
+      "urlMain": "https://discuss.openubmc.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://discuss.openubmc.cn/u/{account}.json",
+      "uri_pretty": "https://discuss.openubmc.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "known": [
+        "system"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Discourse 站用 `.json` 后缀判，比解析 HTML 稳：存在 200 且含 `\"username\"`，不存在 404。robots：本站 `*` 段允许 `/u/` 与 `/topics/created-by/`（逐路径核过）。**不能用 `system`/`admin` 当正样本** —— 它们是安装时自带的内置账号，跨站普遍存在，只能用来验证规则本身。",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "verified_source": "manual"
+    },
+    "openSUSE 中文论坛": {
+      "urlMain": "https://forum.suse.org.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://forum.suse.org.cn/u/{account}.json",
+      "uri_pretty": "https://forum.suse.org.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "known": [
+        "system"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Discourse 站用 `.json` 后缀判，比解析 HTML 稳：存在 200 且含 `\"username\"`，不存在 404。robots：本站 `*` 段允许 `/u/` 与 `/topics/created-by/`（逐路径核过）。**不能用 `system`/`admin` 当正样本** —— 它们是安装时自带的内置账号，跨站普遍存在，只能用来验证规则本身。",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "verified_source": "manual"
+    },
+    "Trae 社区": {
+      "urlMain": "https://forum.trae.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://forum.trae.cn/u/{account}.json",
+      "uri_pretty": "https://forum.trae.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "known": [
+        "system"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Discourse 站用 `.json` 后缀判，比解析 HTML 稳：存在 200 且含 `\"username\"`，不存在 404。robots：本站 `*` 段允许 `/u/` 与 `/topics/created-by/`（逐路径核过）。**不能用 `system`/`admin` 当正样本** —— 它们是安装时自带的内置账号，跨站普遍存在，只能用来验证规则本身。",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "verified_source": "manual"
+    },
+    "GitHub 中文社区": {
+      "urlMain": "https://forum.github-zh.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://forum.github-zh.cn/u/{account}.json",
+      "uri_pretty": "https://forum.github-zh.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "known": [
+        "system"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Discourse 站用 `.json` 后缀判，比解析 HTML 稳：存在 200 且含 `\"username\"`，不存在 404。robots：本站 `*` 段允许 `/u/` 与 `/topics/created-by/`（逐路径核过）。**不能用 `system`/`admin` 当正样本** —— 它们是安装时自带的内置账号，跨站普遍存在，只能用来验证规则本身。",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "verified_source": "manual"
+    },
+    "Luanti 中文论坛": {
+      "urlMain": "https://luanti.forum.cosoc.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://luanti.forum.cosoc.cn/u/{account}.json",
+      "uri_pretty": "https://luanti.forum.cosoc.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "known": [
+        "system"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Discourse 站用 `.json` 后缀判，比解析 HTML 稳：存在 200 且含 `\"username\"`，不存在 404。robots：本站 `*` 段允许 `/u/` 与 `/topics/created-by/`（逐路径核过）。**不能用 `system`/`admin` 当正样本** —— 它们是安装时自带的内置账号，跨站普遍存在，只能用来验证规则本身。",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "verified_source": "manual"
+    },
+    "Marginnote 论坛": {
+      "urlMain": "https://bbs.marginnote.com.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://bbs.marginnote.com.cn/u/{account}.json",
+      "uri_pretty": "https://bbs.marginnote.com.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "known": [
+        "system"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Discourse，用 `.json` 后缀判：存在 200 且含 `\"username\"`，不存在 404。`/topics/created-by/<u>.json` 另可列出他创建过的主题（这是 Discuz 关掉的能力）。robots 的 `*` 段允许 `/u/` 与 `/topics/created-by/`。正样本用 `system`（内置账号）只为验证规则本身，不代表某个真人。",
+      "verified_source": "manual"
+    },
+    "BrainBBS": {
+      "urlMain": "https://brainbbs.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://brainbbs.cn/u/{account}.json",
+      "uri_pretty": "https://brainbbs.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "known": [
+        "system"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Discourse，用 `.json` 后缀判：存在 200 且含 `\"username\"`，不存在 404。`/topics/created-by/<u>.json` 另可列出他创建过的主题（这是 Discuz 关掉的能力）。robots 的 `*` 段允许 `/u/` 与 `/topics/created-by/`。正样本用 `system`（内置账号）只为验证规则本身，不代表某个真人。",
+      "verified_source": "manual"
+    },
+    "RuyiSDK 社区": {
+      "urlMain": "https://ruyisdk.cn/",
+      "tags": [
+        "cn",
+        "forum"
+      ],
+      "uri_check": "https://ruyisdk.cn/u/{account}.json",
+      "uri_pretty": "https://ruyisdk.cn/u/{account}",
+      "e_code": 200,
+      "e_string": "\"username\"",
+      "m_code": 404,
+      "m_string": "",
+      "extract": [
+        "nickname",
+        "avatar"
+      ],
+      "known": [
+        "system"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Discourse，用 `.json` 后缀判：存在 200 且含 `\"username\"`，不存在 404。`/topics/created-by/<u>.json` 另可列出他创建过的主题（这是 Discuz 关掉的能力）。robots 的 `*` 段允许 `/u/` 与 `/topics/created-by/`。正样本用 `system`（内置账号）只为验证规则本身，不代表某个真人。",
+      "verified_source": "manual"
+    },
+    "StarrySky Gitea": {
+      "urlMain": "https://gitea.starryskymeow.cn/",
+      "tags": [
+        "cn",
+        "coding"
+      ],
+      "uri_check": "https://gitea.starryskymeow.cn/api/v1/users/{account}",
+      "uri_pretty": "https://gitea.starryskymeow.cn/{account}",
+      "e_code": 200,
+      "e_string": "\"login\":",
+      "m_code": 404,
+      "m_string": "",
+      "known": [
+        "admin"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-16",
+      "valid": true,
+      "_note": "2026-11-16 实测。Gitea 标准接口 `/api/v1/users/<u>`：存在 200 返回 `{\"id\":3,\"login\":\"admin\",\"created\":\"2025-07-08T10:59:50-04:00\",...}`，不存在 404 返回 `{\"message\":\"user redirect does not exist [name: ...]\"}`。判据用 `\"login\":`（存在侧）+ 404（不存在侧），正反完全分离。robots 未设（取不到文件），未对自动访问设限。注：同批测的另外 4 个 Gitea 实例都没有 `admin` 用户，正样本失效，故只加这一个。",
+      "verified_source": "manual"
+    },
+    "KCWiki 舰娘百科": {
+      "urlMain": "https://zh.kcwiki.cn/",
+      "tags": [
+        "cn",
+        "anime",
+        "wiki"
+      ],
+      "uri_check": "https://zh.kcwiki.cn/api.php?action=query&list=users&ususers={account}&format=json",
+      "uri_pretty": "https://zh.kcwiki.cn/wiki/User:{account}",
+      "e_code": 200,
+      "e_string": "\"userid\":",
+      "m_code": 200,
+      "m_string": "\"missing\"",
+      "known": [
+        "-Winter Cap-"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-17",
+      "valid": true,
+      "_note": "2026-11-17 实测。改用 **MediaWiki 标准 API** 而不是解析用户页 HTML／只看状态码：`/api.php?action=query&list=users&ususers=<用户名>&format=json`。响应里 `\"userid\":N` 表示账号存在，`\"missing\":\"\"` 表示不存在——两者是 JSON 字段名，不会像网页文案那样随皮肤改版。robots 的 `*` 段允许 `/api.php`。原规则是 `User:{account}` 纯状态码判，保留路径（如 `/wiki/`、`/login`）会误报成存在。注意用户名要 URL 编码（中文名、含空格的名字都要）。",
+      "verified_source": "manual"
+    },
+    "Mooncell": {
+      "urlMain": "https://fgo.wiki/",
+      "tags": [
+        "cn",
+        "anime",
+        "wiki"
+      ],
+      "uri_check": "https://fgo.wiki/api.php?action=query&list=users&ususers={account}&format=json",
+      "uri_pretty": "https://fgo.wiki/User:{account}",
+      "e_code": 200,
+      "e_string": "\"userid\":",
+      "m_code": 200,
+      "m_string": "\"missing\"",
+      "known": [
+        "塞波佩戈"
+      ],
+      "known_absent": [
+        "zzqqxx998877zz"
+      ],
+      "verified_at": "2026-11-17",
+      "valid": true,
+      "_note": "2026-11-17 实测。改用 **MediaWiki 标准 API** 而不是解析用户页 HTML／只看状态码：`/api.php?action=query&list=users&ususers=<用户名>&format=json`。响应里 `\"userid\":N` 表示账号存在，`\"missing\":\"\"` 表示不存在——两者是 JSON 字段名，不会像网页文案那样随皮肤改版。robots 的 `*` 段允许 `/api.php`。原规则是 `User:{account}` 纯状态码判，保留路径（如 `/wiki/`、`/login`）会误报成存在。注意用户名要 URL 编码（中文名、含空格的名字都要）。",
+      "verified_source": "manual"
     }
   }
 }

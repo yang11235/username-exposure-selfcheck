@@ -181,6 +181,25 @@
     .cn-out th, .cn-out td { padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--bs-border-color); }
     .cn-out .cn-note { color: var(--bs-secondary-color, #6c757d); font-size: 0.85rem; margin: 0.4rem 0 0; }
 
+    /* 公开痕迹 */
+    .footprint-block { margin-top: 1rem; border-top: 1px solid var(--bs-border-color); padding-top: 0.75rem; }
+    .footprint-head { display: flex; align-items: center; gap: 0.5rem; }
+    .footprint-head h4 { margin: 0; font-size: 0.95rem; }
+    .footprint-note { color: var(--bs-secondary-color, #6c757d); font-size: 0.8rem; margin: 0.35rem 0 0.5rem; }
+    .footprint-out { font-size: 0.85rem; }
+    .footprint-out table { width: 100%; }
+    .footprint-out th, .footprint-out td {
+        padding: 0.25rem 0.5rem;
+        border-bottom: 1px solid var(--bs-border-color);
+        vertical-align: top;
+    }
+    .footprint-out .fp-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .footprint-out .fp-site { white-space: nowrap; }
+    /* 被拦的站点单独一块：它意味着"这里没查到"不等于"这里没有"，
+       不能和命中混在一起显示。 */
+    .footprint-out .fp-blind { color: var(--bs-secondary-color, #6c757d); font-size: 0.8rem; margin-top: 0.6rem; }
+    .footprint-out .fp-blind li { margin-bottom: 0.15rem; }
+
     /* 跨站身份归并 */
     .cluster-block {
        margin-top: 0.9rem;
@@ -258,6 +277,24 @@
             <div class="ai-out" hidden></div>
             <div class="cn-out" hidden></div>
             <div class="anchor-out" hidden></div>
+
+            {# 公开痕迹检索：按需触发，不自动跑。
+               为什么不做成自动（补检是自动的）：补检只打几个接口，
+               痕迹检索会去第三方站点翻页，请求量是它的十倍以上。
+               那种事必须由用户按一下才发生。 #}
+            <div class="footprint-block">
+                <div class="footprint-head">
+                    <h4>公开痕迹</h4>
+                    <button type="button" class="btn btn-sm btn-outline-info footprint-btn ms-auto" data-job="{{ timestamp }}">
+                        检索公开痕迹
+                    </button>
+                </div>
+                <p class="footprint-note">
+                    从公开接口（GitHub 等）与已确认账号的主页，取回「说过什么、什么时候」。
+                    只读公开页面：不登录、不绕过验证、不抓搜索引擎结果页。默认最多 60 次请求。
+                </p>
+                <div class="footprint-out" hidden></div>
+            </div>
             {% endif %}
 
             {% if report.clusters %}
@@ -503,5 +540,91 @@ renderCnProbe(
 );
 {% endif %}
 
+</script>
+<script>
+// 公开痕迹：按需触发。
+//
+// 渲染的是 summary 而不是后端拼好的文本——因为**表格比文本好读**，
+// 而 time 列要能被眼睛扫。`text` 那份仍然返回，给"复制走"的场景用。
+function renderFootprint(out, summary) {
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    if (!summary) { out.textContent = '没有返回结果。'; return; }
+
+    const total = summary.total || 0;
+    const rng = summary.range || [];
+    let html = '';
+
+    if (!total) {
+        html += '<p class="mb-1">本次没有检索到公开痕迹。</p>';
+    } else {
+        let head = '共 ' + total + ' 条痕迹';
+        if (rng.length === 2) head += '，时间跨度 ' + esc(rng[0]) + ' ～ ' + esc(rng[1]);
+        html += '<p class="mb-1">' + head + '</p>';
+
+        html += '<table><thead><tr><th>时间</th><th>来源</th><th>内容</th></tr></thead><tbody>';
+        for (const it of (summary.footprints || [])) {
+            const where = it.forum || it.thread_title || '';
+            const label = it.url
+                ? '<a href="' + esc(it.url) + '" target="_blank" rel="noopener">' + esc(it.site || '') + '</a>'
+                : esc(it.site || '');
+            html += '<tr>'
+                + '<td class="fp-date">' + esc(it.date || '—') + '</td>'
+                + '<td class="fp-site">' + label + '</td>'
+                + '<td>' + (where ? '<span class="text-muted">' + esc(where) + '　</span>' : '')
+                + esc(it.text || '') + '</td>'
+                + '</tr>';
+        }
+        html += '</tbody></table>';
+    }
+
+    // 盲区必须显示。只报命中不提盲区，用户会以为"没查到就是没有"。
+    const blind = [];
+    for (const b of (summary.blocked || [])) blind.push(b + ' —— 被拦，不代表没有');
+    for (const n of (summary.notes || [])) blind.push(n);
+    if (summary.budget_exhausted) {
+        blind.push('请求数已达到单次上限（' + esc(summary.budget) + ' 次），结果可能不完整。');
+    }
+    if (blind.length) {
+        html += '<div class="fp-blind"><strong>本次没读到</strong><ul>';
+        for (const b of blind) html += '<li>' + esc(b) + '</li>';
+        html += '</ul></div>';
+    }
+
+    const places = summary.places || [];
+    const contacts = summary.contacts || [];
+    if (places.length || contacts.length) {
+        html += '<div class="fp-blind"><strong>出现的线索</strong>（原文里的字面值，未做判断）<ul>';
+        if (places.length) html += '<li>地名/机构：' + esc(places.join('、')) + '</li>';
+        if (contacts.length) html += '<li>联系方式：' + esc(contacts.join('、')) + '</li>';
+        html += '</ul></div>';
+    }
+
+    out.innerHTML = html;
+}
+
+document.querySelectorAll('.footprint-btn').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+        const card = btn.closest('.profile-card') || document;
+        const out = card.querySelector('.footprint-out');
+        btn.disabled = true;
+        btn.textContent = '检索中…';
+        out.hidden = false;
+        out.textContent = '正在抓取公开页面，通常需要 10–60 秒（有请求间隔，故意慢）…';
+        try {
+            const resp = await fetch('/api/footprint/' + btn.dataset.job, { method: 'POST' });
+            const data = await resp.json();
+            if (data.ok) {
+                renderFootprint(out, data.summary);
+            } else {
+                out.textContent = data.error || '检索失败';
+            }
+        } catch (err) {
+            out.textContent = '请求失败：' + err;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '重新检索';
+        }
+    });
+});
 </script>
 {% endblock %}
