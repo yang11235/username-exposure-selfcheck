@@ -26,11 +26,43 @@ import asyncio
 import json
 import sys
 import time
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+
+
+def _bootstrap_cn_namespace() -> None:
+    """让 `maigret.cn.*` 在**只装了 aiohttp** 的环境里也能导入。
+
+    背景：`maigret/__init__.py` 会 import `checking`，后者一路拉进
+    aiodns / alive_progress / aiohttp_socks / socid_extractor / curl_cffi，
+    `report` 还要 jinja2、xmind。这些是完整运行时的依赖，自检一个都用不到。
+
+    CI 只装 aiohttp 是刻意的（见 workflow 里"安装依赖"一段的注释）：
+    装全量会引入 xhtml2pdf 这类带系统库的包，让这个每日任务因为无关的依赖
+    问题变红。但这条注释只在 workflow 里写着，脚本本身并不知道——
+    于是 `from maigret.cn.model import ...` 先触发了包初始化，
+    在 CI 里必然 ImportError，自检一次都没跑起来过。
+
+    这里给 `maigret` 注册一个不执行 `__init__.py` 的轻量命名空间，
+    `maigret.cn` 及其子模块照常按路径导入（它们都是纯标准库实现）。
+    本地装了全量依赖时 `import maigret` 会成功，直接复用，行为不变。
+    """
+    try:
+        import maigret  # noqa: F401
+        return
+    except Exception:  # 缺模块、缺系统库都走降级，不让自检死在这一步
+        pass
+    # 导入失败时 CPython 已把半初始化的模块从 sys.modules 摘掉，不会残留。
+    pkg = types.ModuleType("maigret")
+    pkg.__path__ = [str(ROOT / "maigret")]
+    sys.modules["maigret"] = pkg
+
+
+_bootstrap_cn_namespace()
 
 from maigret.cn.model import Site  # noqa: E402
 from maigret.cn.overlay import load_sites  # noqa: E402
@@ -62,6 +94,19 @@ async def fetch(session, url):
 
 async def check_site(session, site: Site):
     """对单个站点跑 known / known_absent 两个样本。"""
+    # 本脚本验的是**四字段协议**（e_string/m_string 能不能把两种响应分开），
+    # 只有 http 执行器是这套判据。search / browser 执行器走的是
+    # executors/search.py 里"结果里有没有逐字相同的句柄"那套逻辑，
+    # 它们的站点通常也没有 e_code/m_code —— 交给 judge() 只会得到
+    # RULE_MISSING，被算成"规则失效"，每天把 CI 顶红。
+    # 这类站点在这里显式跳过，而不是伪造一个"通过"。
+    if site.executor != "http":
+        return {
+            "site": site.name,
+            "result": "SKIP",
+            "detail": f"executor={site.executor}，不走四字段判据，本脚本不适用",
+        }
+
     if not site.known or not site.known_absent:
         return {
             "site": site.name,

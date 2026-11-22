@@ -194,3 +194,101 @@ def test_anti_bot_diagnosis_does_not_point_at_rules():
     assert "不是规则问题" in text
     assert "e_string" not in text
 
+
+# ---------------------------------------------------------------------------
+# 只验四字段协议：非 http 执行器必须 SKIP
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_executor_is_skipped_not_failed():
+    """search / browser 执行器不走 e_string/m_string，必须跳过。
+
+    这类站点通常根本没配 e_code/m_code（判据在 executors/search.py 里）。
+    交给 judge() 只会得到 RULE_MISSING，被 classify 归成 RULE，
+    于是每日自检永久变红——而"永久红"和"没有任务"等价。
+    """
+    site = type(
+        "S", (),
+        {
+            "name": "NetEase Music (搜索)",
+            "executor": "search",
+            "known": ["wizzer"],
+            "known_absent": ["zzqqxx998877zz"],
+            "uri_check": "https://example.invalid/s?q={account}",
+        },
+    )()
+
+    result = await sc.check_site(None, site)
+
+    assert result["result"] == "SKIP"
+    assert "search" in result["detail"]
+    assert sc.exit_code([result]) == 0
+
+
+@pytest.mark.asyncio
+async def test_http_executor_still_runs(monkeypatch):
+    """跳过逻辑不能顺手把 http 执行器也跳过——那是自检的全部意义。"""
+    site = type(
+        "S", (),
+        {
+            "name": "Gitee",
+            "executor": "http",
+            "known": ["a"],
+            "known_absent": ["b"],
+            "uri_check": "https://example.invalid/{account}",
+        },
+    )()
+
+    async def fake_fetch(session, url):
+        return 200, "ok"
+
+    monkeypatch.setattr(sc, "fetch", fake_fetch)
+    monkeypatch.setattr(sc, "DELAY_SECONDS", 0)
+    monkeypatch.setattr(
+        sc, "judge",
+        lambda resp, s, username: type(
+            "V", (), {"status": sc.Status.CLAIMED if username == "a" else sc.Status.AVAILABLE,
+                      "reason": None, "confidence": 0.5},
+        )(),
+    )
+
+    result = await sc.check_site(None, site)
+
+    assert result["result"] == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# 只装 aiohttp 的环境里也必须能 import
+# ---------------------------------------------------------------------------
+def test_cn_namespace_bootstraps_without_full_deps(monkeypatch):
+    """CI 只装 aiohttp，`maigret/__init__.py` 会因缺 aiodns 等直接抛 ImportError。
+
+    自检一次都没跑起来的那次故障就是它：脚本在 import 阶段就死了，
+    根本走不到"跑规则"那一步，日志里只有一句"缺依赖"。
+    这里模拟"maigret 包初始化失败"，确认降级命名空间能让 maigret.cn 的
+    纯标准库模块照常导入。
+    """
+    saved = {k: v for k, v in sys.modules.items() if k == "maigret" or k.startswith("maigret.")}
+    for key in saved:
+        del sys.modules[key]
+
+    real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "maigret":
+            raise ImportError("Missing required dependency while starting Maigret.")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+    try:
+        sc._bootstrap_cn_namespace()
+
+        pkg = sys.modules["maigret"]
+        assert pkg.__path__ == [str(sc.ROOT / "maigret")]
+        # 没有执行 __init__.py，所以不会有 checking/maigret 这些重依赖模块
+        assert not hasattr(pkg, "search")
+    finally:
+        monkeypatch.undo()
+        for key in [k for k in sys.modules if k == "maigret" or k.startswith("maigret.")]:
+            del sys.modules[key]
+        sys.modules.update(saved)
+
