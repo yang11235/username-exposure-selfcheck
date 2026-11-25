@@ -69,9 +69,15 @@ jobs:
       - name: 运行规则自检
         id: selfcheck
         env:
-          # 通过环境变量传，不用 ${{ }} 直接拼进 shell：
-          # workflow_dispatch 的输入是人手填的，拼进命令行等于给了 shell 注入口。
-          SITES: ${{ github.event.inputs.sites }}
+          # 站点名通过环境变量传给脚本，由脚本自己按换行/逗号切分，
+          # **不经过 shell**。三个理由：
+          #   1. workflow_dispatch 的输入是人手填的，拼进命令行等于开了注入口；
+          #   2. 站名里有空格（`Sina Blog`、`NetEase Music (搜索)`），
+          #      `${SITES:+--site $SITES}` 这种不加引号的展开会被词分割成
+          #      两个站，结果两个都匹配不到、什么都没查却报"规则失效"；
+          #   3. 加引号也不行——整串会被当成一个站名。
+          # 所以让脚本读 CN_SELFCHECK_SITES，按行/逗号拆。
+          CN_SELFCHECK_SITES: ${{ github.event.inputs.sites }}
         run: |
           # GitHub 默认用 `bash -e`，中途失败会直接中断，$? 根本读不到。
           # 必须显式关掉，才能把退出码带出去给后面的判断用。
@@ -80,7 +86,7 @@ jobs:
           # 进度行，重定向会把它们和 JSON 混在一个文件里，json.load() 直接报错。
           # --json-out 保证文件里只有 JSON。
           set +e
-          python utils/cn_selfcheck.py --write-doc --json-out selfcheck.json ${SITES:+--site $SITES}
+          python utils/cn_selfcheck.py --write-doc --json-out selfcheck.json
           code=$?
           set -e
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
@@ -96,10 +102,29 @@ jobs:
               print("没有产出结果文件")
               raise SystemExit(0)
           rows = json.loads(p.read_text(encoding="utf-8"))
-          rule = [r for r in rows if r.get("result") == "FAIL" and r.get("kind") == "RULE"]
-          env  = [r for r in rows if r.get("result") == "FAIL" and r.get("kind") != "RULE"]
-          print(f"共 {len(rows)} 个站点：{len(rows)-len(rule)-len(env)} 通过 / "
-                f"{len(rule)} 规则失效 / {len(env)} 环境受限")
+          if not isinstance(rows, list):
+              print(f"结果文件不是列表（{type(rows).__name__}）：{rows!r}")
+              raise SystemExit(0)
+          # 逐项数，不要用 len(rows)-len(rule)-len(env)：
+          # 那会把 SKIP / DISABLED 一起算成"通过"。加进"停用"和"跳过"之后，
+          # 这个算式会报"42 通过"而实际只验了 24 个站——看板 md 写 24、
+          # CI 日志写 42，同一份数据两个数字。
+          by = lambda r: r.get("result")
+          rule = [r for r in rows if by(r) == "FAIL" and r.get("kind") == "RULE"]
+          env  = [r for r in rows if by(r) == "FAIL" and r.get("kind") != "RULE"]
+          passed = [r for r in rows if by(r) == "PASS"]
+          skipped = [r for r in rows if by(r) == "SKIP"]
+          disabled = [r for r in rows if by(r) == "DISABLED"]
+          print(f"共 {len(rows)} 个站点：{len(passed)} 通过 / "
+                f"{len(rule)} 规则失效 / {len(env)} 环境受限 / "
+                f"{len(skipped)} 跳过 / {len(disabled)} 停用")
+          flaky = [
+              r for r in passed
+              if any(x.get("attempts", 1) > 1 for x in r.get("rows", []))
+          ]
+          if flaky:
+              print(f"  其中 {len(flaky)} 个重试后才通过（抖动）："
+                      + ", ".join(r.get("site", "?") for r in flaky))
           for r in rule:
               print(f"  [规则失效] {r.get('site')}: {r.get('detail', '')}")
           PY
@@ -119,7 +144,22 @@ jobs:
       # 也让 review 失去意义。
       - name: 提交健康看板到 cn-health 分支
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          # 走环境变量而不是直接 `${{ }}` 拼进 shell：workflow_dispatch 的
+          # 输入是人手填的，拼进命令行等于给了 shell 注入口。这一点和
+          # "运行规则自检"那一步传 SITES 的做法保持一致。
+          # schedule 事件下 github.event.inputs 不存在，渲染为空串，正好是
+          # "没有手动指定"的语义。
+          SITES: ${{ github.event.inputs.sites }}
         run: |
+          # 手动指定站点时自检只覆盖那几个站，产出的看板是个局部快照。
+          # 把它 force push 上去会把完整的看板整份抹掉（`git checkout -B`
+          # + `push --force`，历史里也找不回来）。脚本侧已经在 --site 时
+          # 跳过写看板，这里再挡一道：两层都不信任对方的判断。
+          if [ -n "$SITES" ]; then
+            echo "指定了 sites 输入（$SITES），只做自检不更新看板"
+            exit 0
+          fi
           if git diff --quiet -- docs/cn-health.md; then
             echo "健康看板没有变化，跳过提交"
             exit 0
