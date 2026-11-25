@@ -615,3 +615,40 @@ def test_baidu_rule_separates_present_and_absent_on_the_real_payloads():
     for body in (absent, absent_alt):
         verdict = judge(SimpleNamespace(status=200, text=body), site, "maigret")
         assert verdict.status is Status.AVAILABLE, body
+
+
+def test_disqus_absent_side_answers_400_not_200(merged):
+    """Disqus 的反例侧是 HTTP 400 —— 这是每日自检一直红的真因。
+
+    2026-11-25 实测（逐条核过原始响应）：
+
+        存在   HTTP 200 + {"code":0,"response":{...,"avatar":{"permalink":
+                       "https://disqus.com/api/users/avatars/blue.jpg"}}}
+        不存在 HTTP 400 + {"code":2,"response":"Invalid argument, 'user':
+                       User matching query does not exist."}
+
+    上游把这条标成 checkType=status_code，overrides 改成 message 后
+    e_code 与 m_code 都被映射成 200；而 verdict._hit() 先比状态码再比串，
+    于是反例侧的 400 永远对不上 200，判据串根本没机会被看到 —— 自检报
+    "两侧都不命中（实际 HTTP 400）"，看起来像站点改版，实际是我们把
+    反例的状态码写错了。
+    """
+    from types import SimpleNamespace
+
+    from maigret.cn.verdict import Status, judge
+
+    site = merged["Disqus"]
+    assert site.valid, "Disqus 不该再是停用状态"
+    assert (site.e_code, site.m_code) == (200, 400)
+
+    present = (
+        '{"code":0,"response":{"username":"blue","avatar":'
+        '{"permalink":"https://disqus.com/api/users/avatars/blue.jpg"}}}'
+    )
+    absent = '{"code":2,"response":"Invalid argument, \'user\': User matching query does not exist."}'
+
+    assert judge(SimpleNamespace(status=200, text=present), site, "blue").status is Status.CLAIMED
+    assert (
+        judge(SimpleNamespace(status=400, text=absent), site, "noonewouldeverusethis7").status
+        is Status.AVAILABLE
+    )

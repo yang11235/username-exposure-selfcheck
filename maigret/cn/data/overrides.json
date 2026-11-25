@@ -19,7 +19,8 @@
   "sites": {
     "Disqus": {
       "checkType": "message",
-      "_note": "修正 checkType。上游把它标成 status_code，但同时又自带成对的 presenseStrs / absenceStrs（'https://disqus.com/api/users/' 与 'User matching query does not exist'）—— 说明状态码本来分不开，字符串才是判据，标 status_code 等于把已有的证据丢掉。改成 message 后 e_code=m_code=200，用上游自带的两个串判定，规则值一个字都没编。"
+      "m_code": 400,
+      "_note": "修正 checkType。上游把它标成 status_code，但同时又自带成对的 presenseStrs / absenceStrs（'https://disqus.com/api/users/' 与 'User matching query does not exist'）—— 说明状态码本来分不开，字符串才是判据，标 status_code 等于把已有的证据丢掉。改成 message 后判据串沿用上游原值，一个字都没编。\n\n2026-11-25 实测（当日能访问 Disqus 的网络，逐条核过原始响应）：\n  · 正例 blue → HTTP 200，正文含 'https://disqus.com/api/users/'（出现在 avatar 的 permalink 里）；\n  · 反例 noonewouldeverusethis7 → **HTTP 400**，正文 {\"code\":2,\"response\":\"Invalid argument, 'user': User matching query does not exist.\"}。\n所以 m_code 必须是 400。message 映射会把 e_code 与 m_code 都写成 200，而 verdict._hit() 先比状态码再比串——反例侧 400 ≠ 200，判据串根本没机会被看到。这是每日自检自 2026-11-16 起一直红的直接原因：不是站点改版，是我们把反例的状态码写错了。\n\n已知的第二个坑（不是规则问题，改规则修不好）：Disqus 的公共 API key 写在 URL 里，是所有人共用的。GitHub runner 走共享出口 IP，key 在那个 IP 上的配额被耗尽时，接口回 400 + {\"code\":..,\"response\":\"Usage limit exceeded\"} 之类的信封，**两侧样本都是 400**，正文里两个判据串都不出现。那种情况由 utils/cn_selfcheck.py 的 _api_error() 归成 ENV（环境受限），不会再把每日 CI 弄红；反过来，如果哪天这条规则真的过期了，正例侧会是 200 却不含 e_string，仍然判 RULE。"
     },
     "Weibo": {
       "headers": {
